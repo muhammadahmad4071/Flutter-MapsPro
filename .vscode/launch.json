@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Flutter Debug",
+            "request": "launch",
+            "type": "dart",
+            "program": "lib/main.dart",
+            "args": ["--no-sound-null-safety"], // Add if your app uses non-null-safe packages.
+            "cwd": "${workspaceFolder}" // Ensure the correct working directory
+        }
+    ]
+}
