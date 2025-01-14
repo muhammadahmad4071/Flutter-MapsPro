@@ -26,7 +26,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return ScreenUtilInit(
       designSize: const Size(375, 812), // Set your design dimensions
-      minTextAdapt: true,
+      minTextAdapt: true,   
       builder: (context, child) {
         return MaterialApp(
           title: 'Maps App',
