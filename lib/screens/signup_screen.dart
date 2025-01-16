@@ -1,7 +1,11 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:maps/screens/maps_home_screen.dart';
 import 'package:maps/screens/signin_screen.dart';
@@ -27,11 +31,59 @@ class _SignUpScreenState extends State<SignUpScreen> {
 
   bool _isLoading = false;
 
+  bool isInternetConnected = true;
+  List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
+  final Connectivity _connectivity = Connectivity();
+  late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+
   @override
   void initState() {
     super.initState();
+    initConnectivity();
+    _connectivitySubscription =
+        _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
     _initializeFirebase();
   }
+
+  
+  @override
+  void dispose() {
+    _connectivitySubscription.cancel();
+    _nameController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> initConnectivity() async {
+    List<ConnectivityResult> result;
+
+    try {
+      result = await _connectivity.checkConnectivity();
+    } on PlatformException catch (e) {
+      print("Connectivity error: $e");
+      return;
+    }
+
+    // Update the UI based on the connectivity result
+    if (!mounted) return;
+
+    _updateConnectionStatus(result);
+  }
+
+  Future<void> _updateConnectionStatus(List<ConnectivityResult> result) async {
+    setState(() {
+      _connectionStatus = result;
+
+      // Check if any connectivity result is either wifi or mobile
+      isInternetConnected = result.contains(ConnectivityResult.wifi) ||
+          result.contains(ConnectivityResult.mobile);
+    });
+
+    print('Connectivity changed: $_connectionStatus bool $isInternetConnected');
+  }
+
 
   Future<void> _initializeFirebase() async {
     final FirebaseApp app = await Firebase.initializeApp();
@@ -65,6 +117,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (context) => MapsHomeScreen()));
       } catch (e) {
+          print("myDebug error in signup: $e");
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(_getErrorMessage(e))),
         );
@@ -126,20 +179,12 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
-    _confirmPasswordController.dispose();
-    super.dispose();
-  }
 
   @override
   Widget build(BuildContext context) {
     double screenWidth = MediaQuery.of(context).size.width;
     return Scaffold(
-      resizeToAvoidBottomInset: true,
+      resizeToAvoidBottomInset: false,
       backgroundColor: Colors.white,
       body: SafeArea(
         child: Container(
@@ -161,7 +206,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
                 ),
               ),
               _buildTextField(
-                  _nameController, "Full Name", Icons.person_outlined),
+                  _nameController, "Full Name", Icons.person_outlined, TextInputType.name),
               SizedBox(height: 16.h),
               _buildTextField(_emailController, "Email", Icons.email_outlined,
                   TextInputType.emailAddress),

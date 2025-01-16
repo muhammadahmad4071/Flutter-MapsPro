@@ -3,6 +3,8 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:maps/screens/signin_screen.dart';
 import 'package:maps/screens/signup_screen.dart';
 import 'package:maps/util/app_colors.dart';
+// import 'package:shared_preferences/shared_preferences.dart';
+// import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
 
 class OnBoardScreen extends StatefulWidget {
@@ -18,10 +20,21 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
   late double screenWidth;
 
   @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
   void dispose() {
     controller.dispose();
     super.dispose();
   }
+
+  // Future<void> hideOnBoardScreens() async {
+  //   // Inside your OnBoardScreen logic (e.g., when the user finishes onboarding)
+  //   SharedPreferences prefs = await SharedPreferences.getInstance();
+  //   prefs.setBool('isFirstTime', false);
+  // }
 
   Widget buildPage({
     Color? color,
@@ -30,104 +43,108 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
     String? subtitle,
   }) =>
       Padding(
-        padding: EdgeInsets.all(2.h),
-        child: OrientationBuilder(builder: (context, orientation) {
-          return Container(
-              color: color,
-              child: orientation == Orientation.portrait
-                  ? Column(
-                      children: [
-                        SizedBox(
-                          height: 60.h,
+          padding: EdgeInsets.all(2.h),
+          child:
+              // OrientationBuilder(builder: (context, orientation) {
+              //   return
+              Container(
+                  color: color,
+                  child:
+                      // orientation == Orientation.portrait?
+                      Column(
+                    children: [
+                      SizedBox(
+                        height: 60.h,
+                      ),
+                      Image.asset(imagePath!,
+                          width: double.infinity, fit: BoxFit.cover),
+                      SizedBox(
+                        height: 40.h,
+                      ),
+                      Text(
+                        title1!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          // fontFamily: 'Quicksand',
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primaryText,
+                          fontSize: 20.sp,
                         ),
-                        Image.asset(imagePath!,
-                            width: double.infinity, fit: BoxFit.cover),
-                        SizedBox(
-                          height: 40.h,
-                        ),
-                        Text(
-                          title1!,
+                      ),
+                      SizedBox(
+                        height: 2.h,
+                      ),
+                      Container(
+                        padding: EdgeInsets.symmetric(horizontal: 4.0.w),
+                        child: Text(
+                          subtitle!,
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            // fontFamily: 'Quicksand',
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.primaryText,
-                            fontSize: 20.sp,
-                          ),
+                              // fontFamily: 'Quicksand',
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.primaryText,
+                              fontSize: 14.sp),
                         ),
-                        SizedBox(
-                          height: 2.h,
-                        ),
-                        Container(
-                          padding: EdgeInsets.symmetric(horizontal: 4.0.w),
-                          child: Text(
-                            subtitle!,
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                // fontFamily: 'Quicksand',
-                                fontWeight: FontWeight.w500,
-                                color: AppColors.primaryText,
-                                fontSize: 14.sp),
-                          ),
-                        )
-                      ],
-                    )
-                  : Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SizedBox(
-                          // color: Colors.green,
-                          // height: 25.h,
-                          width: screenWidth / 2,
-                          child: Image.asset(imagePath!,
-                              width: double.infinity, fit: BoxFit.fitHeight),
-                        ),
+                      )
+                    ],
+                  )
+                  // : Row(
+                  //     mainAxisAlignment: MainAxisAlignment.center,
+                  //     children: [
+                  //       SizedBox(
+                  //         // color: Colors.green,
+                  //         // height: 25.h,
+                  //         width: screenWidth / 2,
+                  //         child: Image.asset(imagePath!,
+                  //             width: double.infinity, fit: BoxFit.fitHeight),
+                  //       ),
 
-                        Padding(
-                          padding: EdgeInsets.only(left: 6.w),
-                          child: SizedBox(
-                            // color: Colors.red,
-                            // height: 25.h,
-                            width: MediaQuery.of(context).size.width / 3,
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  title1!,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    // fontFamily: 'Quicksand',
-                                    fontWeight: FontWeight.w500,
-                                    color: AppColors.primaryText,
-                                    fontSize: 16.sp,
-                                  ),
-                                ),
-                                SizedBox(
-                                  height: 2.h,
-                                ),
-                                Container(
-                                  padding:
-                                      EdgeInsets.symmetric(horizontal: 4.0.w),
-                                  child: Text(
-                                    subtitle!,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                        // fontFamily: 'Quicksand',
-                                        fontWeight: FontWeight.w500,
-                                        color: AppColors.primaryText,
-                                        fontSize: 10.sp),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                        // Image.asset(imagePath,
-                        //     width: double.infinity, fit: BoxFit.cover),
-                      ],
-                    ));
-        }),
-      );
+                  //       Padding(
+                  //         padding: EdgeInsets.only(left: 6.w),
+                  //         child: SizedBox(
+                  //           // color: Colors.red,
+                  //           // height: 25.h,
+                  //           width: MediaQuery.of(context).size.width / 3,
+                  //           child: Column(
+                  //             mainAxisAlignment: MainAxisAlignment.center,
+                  //             children: [
+                  //               Text(
+                  //                 title1!,
+                  //                 textAlign: TextAlign.center,
+                  //                 style: TextStyle(
+                  //                   // fontFamily: 'Quicksand',
+                  //                   fontWeight: FontWeight.w500,
+                  //                   color: AppColors.primaryText,
+                  //                   fontSize: 16.sp,
+                  //                 ),
+                  //               ),
+                  //               SizedBox(
+                  //                 height: 2.h,
+                  //               ),
+                  //               Container(
+                  //                 padding:
+                  //                     EdgeInsets.symmetric(horizontal: 4.0.w),
+                  //                 child: Text(
+                  //                   subtitle!,
+                  //                   textAlign: TextAlign.center,
+                  //                   style: TextStyle(
+                  //                       // fontFamily: 'Quicksand',
+                  //                       fontWeight: FontWeight.w500,
+                  //                       color: AppColors.primaryText,
+                  //                       fontSize: 10.sp),
+                  //                 ),
+                  //               ),
+                  //             ],
+                  //           ),
+                  //         ),
+                  //       )
+                  //       // Image.asset(imagePath,
+                  //       //     width: double.infinity, fit: BoxFit.cover),
+                  //     ],
+                  //   )
+                  //             );
+                  // }),
+                  ));
 
   @override
   Widget build(BuildContext context) {
@@ -147,24 +164,24 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
             children: [
               buildPage(
                 color: Colors.white,
-                imagePath: 'assets/screen1.png',
-                title1: "Lorem ipsum dolor",
+                imagePath: 'assets/screen1_2x.png',
+                title1: "Explore with Ease",
                 subtitle:
-                    "Minim Lorem proident cupidatat enim anim ipsum eu esse esse.",
+                    "Find your way effortlessly with precise location search and navigation.",
               ),
               buildPage(
                 color: Colors.white,
-                imagePath: 'assets/screen2.png',
-                title1: "Lorem  dolor",
+                imagePath: 'assets/screen2_2x.png',
+                title1: "Navigate Smarter",
                 subtitle:
-                    "Lorem ipsum dolor sit amet consectetur. Sed pellentesque nisl lacus morbi amet mi nisi id amet.",
+                    "Discover the most efficient routes to your destination and save time.",
               ),
               buildPage(
                 color: Colors.white,
-                imagePath: 'assets/screen3.png',
-                title1: "Lorem ipsum ",
+                imagePath: 'assets/screen3_2x.png',
+                title1: "Start Your Journey",
                 subtitle:
-                    "Lorem ipsum dolor sit amet consectetur. Sed pellentesque nisl lacus morbi amet mi nisi id amet. Minim Lorem proident cupidatat enim anim ipsum eu esse esse.",
+                    "Ready to explore? Log in or sign up now and begin navigating with confidence.",
               ),
             ],
           ),
@@ -205,6 +222,7 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
                     children: [
                       TextButton(
                           onPressed: () {
+                            // hideOnBoardScreens();
                             controller.jumpToPage(2);
                           },
                           child: Text(
@@ -261,6 +279,7 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
                     children: [
                       ElevatedButton(
                         onPressed: () {
+                          // hideOnBoardScreens();
                           Navigator.pushReplacement(
                               context,
                               MaterialPageRoute(
@@ -288,6 +307,7 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
                       ),
                       ElevatedButton(
                         onPressed: () {
+                          // hideOnBoardScreens();
                           Navigator.pushReplacement(
                               context,
                               MaterialPageRoute(

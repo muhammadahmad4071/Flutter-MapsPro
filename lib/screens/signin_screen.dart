@@ -1,7 +1,12 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:maps/screens/no_internet.dart';
 import 'package:maps/screens/signup_screen.dart';
 import 'maps_home_screen.dart';
 import 'package:maps/util/app_colors.dart';
@@ -21,23 +26,60 @@ class _SignInScreenState extends State<SignInScreen> {
 
   bool _isLoading = false;
 
+  bool isInternetConnected = true;
+  List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
+  final Connectivity _connectivity = Connectivity();
+  late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+
   @override
   void initState() {
     super.initState();
+    initConnectivity();
+    _connectivitySubscription =
+        _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
     _initializeFirebaseAuth();
+  }
+
+  Future<void> initConnectivity() async {
+    List<ConnectivityResult> result;
+
+    try {
+      result = await _connectivity.checkConnectivity();
+    } on PlatformException catch (e) {
+      print("Connectivity error: $e");
+      return;
+    }
+
+    // Update the UI based on the connectivity result
+    if (!mounted) return;
+
+    _updateConnectionStatus(result);
+  }
+
+  Future<void> _updateConnectionStatus(List<ConnectivityResult> result) async {
+    setState(() {
+      _connectionStatus = result;
+
+      // Check if any connectivity result is either wifi or mobile
+      isInternetConnected = result.contains(ConnectivityResult.wifi) ||
+          result.contains(ConnectivityResult.mobile);
+    });
+
+    print('Connectivity changed: $_connectionStatus bool $isInternetConnected');
+  }
+
+  @override
+  void dispose() {
+    _connectivitySubscription.cancel();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
   }
 
   Future<void> _initializeFirebaseAuth() async {
     // Initialize a specific Firebase app instance
     final FirebaseApp app = await Firebase.initializeApp();
     _auth = FirebaseAuth.instanceFor(app: app);
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    super.dispose();
   }
 
   // Function to handle sign-in logic
@@ -53,9 +95,9 @@ class _SignInScreenState extends State<SignInScreen> {
     }
 
     try {
-        setState(() {
-          _isLoading = true; // Show loader
-        });
+      setState(() {
+        _isLoading = true; // Show loader
+      });
       await _auth.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
@@ -63,16 +105,17 @@ class _SignInScreenState extends State<SignInScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Sign-In Successful!')),
       );
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => MapsHomeScreen()));
+      Navigator.pushReplacement(
+          context, MaterialPageRoute(builder: (context) => MapsHomeScreen()));
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_getErrorMessage(e))),
-        );
-    }  finally {
-        setState(() {
-          _isLoading = false; // Hide loader
-        });
-      }
+        SnackBar(content: Text(_getErrorMessage(e))),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false; // Hide loader
+      });
+    }
   }
 
   String _getErrorMessage(Object error) {
@@ -85,8 +128,12 @@ class _SignInScreenState extends State<SignInScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!isInternetConnected) {
+      return NoInternetWidget();
+    }
     double screenWidth = MediaQuery.of(context).size.width;
     return Scaffold(
+       resizeToAvoidBottomInset: false,
       body: SafeArea(
         child: Container(
           color: Colors.white,
@@ -162,35 +209,35 @@ class _SignInScreenState extends State<SignInScreen> {
                 Padding(
                   padding: EdgeInsets.symmetric(vertical: 20.h),
                   child: _isLoading
-                  ? SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
-                        strokeWidth: 2.0,
-                      ),
-                    )
-                  : ElevatedButton(
-                    onPressed: (){
-                      _signIn();
-                    },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primary,
-                      padding: EdgeInsets.symmetric(
-                          horizontal: 40.w,
-                          vertical: 15.h), // Add padding for size
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                            10.sp), // Set the radius for rounded corners
-                      ),
-                      minimumSize: Size(screenWidth, 50.sp),
-                    ),
-                    child: Text(
-                      'Sign In',
-                      style: TextStyle(
-                          fontSize: 16.sp, color: AppColors.primaryText),
-                    ),
-                  ),
+                      ? SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            color: AppColors.primary,
+                            strokeWidth: 2.0,
+                          ),
+                        )
+                      : ElevatedButton(
+                          onPressed: () {
+                            _signIn();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.primary,
+                            padding: EdgeInsets.symmetric(
+                                horizontal: 40.w,
+                                vertical: 15.h), // Add padding for size
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(
+                                  10.sp), // Set the radius for rounded corners
+                            ),
+                            minimumSize: Size(screenWidth, 50.sp),
+                          ),
+                          child: Text(
+                            'Sign In',
+                            style: TextStyle(
+                                fontSize: 16.sp, color: AppColors.primaryText),
+                          ),
+                        ),
                 ),
                 Spacer(),
                 Row(
@@ -202,7 +249,10 @@ class _SignInScreenState extends State<SignInScreen> {
                     ),
                     TextButton(
                       onPressed: () {
-                        Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => SignUpScreen()));
+                        Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => SignUpScreen()));
                       },
                       child: Text(
                         'Sign Up',
