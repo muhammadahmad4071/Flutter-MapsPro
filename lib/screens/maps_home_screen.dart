@@ -7,7 +7,7 @@ import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:google_maps_webservice/directions.dart';
+import 'package:google_maps_webservice/directions.dart' as gmaps;
 import 'package:google_maps_webservice/places.dart';
 import 'package:http/http.dart' as http;
 import 'package:maps/screens/no_internet.dart';
@@ -28,12 +28,13 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   static const myApiKey = "AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk";
   late GoogleMapController mapController;
   late LatLng _initialPosition;
+  late LatLng _destinationPosition;
   Marker? _startingMarker;
   Marker? _destinationMarker;
   TextEditingController _searchController = TextEditingController();
   final GoogleMapsPlaces _places = GoogleMapsPlaces(apiKey: myApiKey);
-  final GoogleMapsDirections _directions =
-      GoogleMapsDirections(apiKey: myApiKey);
+  final gmaps.GoogleMapsDirections _directions =
+      gmaps.GoogleMapsDirections(apiKey: myApiKey);
   Set<maps.Polyline> _polylines = {};
   List<Prediction> _predictions = [];
   late Prediction _prediction;
@@ -49,6 +50,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
   final Connectivity _connectivity = Connectivity();
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+  String _selectedMode = "driving";
 
   @override
   void initState() {
@@ -248,91 +250,115 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   void _selectCity(Prediction prediction) async {
+    FocusScope.of(context).unfocus();
     setState(() {
-    _predictions.clear();
-  });
-    // void _selectCity(Prediction prediction) async {
+      _predictions.clear();
+    });
+
     final placeDetails = await _places.getDetailsByPlaceId(prediction.placeId!);
+
     if (placeDetails.isOkay) {
       final location = placeDetails.result.geometry!.location;
-      final cityPosition = LatLng(location.lat, location.lng);
-
-      // Retrieve user's current location
-      final userPosition = _initialPosition;
-      getRoutesAndDrawPolylines(_initialPosition, cityPosition);
-
-      // Fetch distance and duration from Directions API
-      final directionsResponse =
-          await _fetchDirections(userPosition, cityPosition);
-      distanceText = directionsResponse['distanceText'];
-      durationText = directionsResponse['durationText'];
+      _destinationPosition = LatLng(location.lat, location.lng);
 
       setState(() {
         _prediction = prediction;
         _destinationMarker = Marker(
           markerId: const MarkerId('cityLocation'),
-          position: cityPosition,
+          position: _destinationPosition,
           infoWindow: InfoWindow(title: prediction.description),
         );
         showBottomSheet = true;
       });
 
-      mapController.animateCamera(CameraUpdate.newLatLngZoom(cityPosition, 14));
+      mapController
+          .animateCamera(CameraUpdate.newLatLngZoom(_destinationPosition, 14));
 
-      // Dismiss the keyboard when a city is selected
-      FocusScope.of(context).unfocus();
-
-      // _predictions = [];
+      // Fetch and draw routes after destination is selected
+      await _fetchAndDrawRoutes();
     } else {
       debugPrint("Error fetching place details: ${placeDetails.errorMessage}");
+    }
+
+    // Dismiss the keyboard when a city is selected
+  }
+
+// Fetch and draw routes based on the current travel mode
+  Future<void> _fetchAndDrawRoutes() async {
+    // _polylines.clear();
+    try {
+      if (_initialPosition == null || _destinationPosition == null) {
+        throw Exception("Initial or destination position is not set.");
+      }
+
+      final directionsUrl =
+          'https://maps.googleapis.com/maps/api/directions/json?origin=${_initialPosition.latitude},${_initialPosition.longitude}&destination=${_destinationPosition.latitude},${_destinationPosition.longitude}&mode=$_selectedMode&alternatives=true&key=AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk';
+      debugPrint("Fetching directions: $directionsUrl");
+
+      final response = await http.get(Uri.parse(directionsUrl));
+      debugPrint("Fetching directions decoded response: $response");
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['routes'] != null && data['routes'].isNotEmpty) {
+          final route = data['routes'][0];
+          final legs = route['legs'][0];
+
+          setState(() {
+            distanceText = legs['distance']['text'];
+            durationText = legs['duration']['text'];
+          });
+
+          // Draw routes
+          await getRoutesAndDrawPolylines();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('No routes found for the selected mode.'),
+              backgroundColor: Colors.red, // Optional: Set a background color
+              duration:
+                  Duration(seconds: 3), // Optional: Duration of the snackbar
+            ),
+          );
+          // throw Exception('No routes found for the selected mode.');
+        }
+      } else {
+        throw Exception('Failed to load directions: ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('Error fetching directions: $e');
       setState(() {
-        showBottomSheet = false;
+        distanceText = 'N/A';
+        durationText = 'N/A';
       });
     }
   }
 
-// Helper function to fetch directions using Directions API
-  Future<Map<String, String>> _fetchDirections(
-      LatLng origin, LatLng destination) async {
-    final directionsUrl =
-        'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk';
-    print("Distance Function: $directionsUrl");
+// Fetch and draw polylines for routes
+  Future<void> getRoutesAndDrawPolylines() async {
     try {
-      final response = await http.get(Uri.parse(directionsUrl));
-      if (response.statusCode == 200) {
-        final data = json.decode(response.body);
-        final route = data['routes'][0];
-        final legs = route['legs'][0];
+      final _travelMode = getTravelMode(_selectedMode);
 
-        final distanceText = legs['distance']['text'];
-        final durationText = legs['duration']['text'];
+      debugPrint('Fetching routes for mode: $_selectedMode');
+      setState(() {
+        _polylines.clear(); // Clear previous polylines before fetching new ones
+      });
 
-        return {'distanceText': distanceText, 'durationText': durationText};
-      } else {
-        throw Exception('Failed to load directions');
-      }
-    } catch (e) {
-      debugPrint('Error fetching directions: $e');
-      return {'distanceText': 'N/A', 'durationText': 'N/A'};
-    }
-  }
-
-  Future<void> getRoutesAndDrawPolylines(
-      LatLng origin, LatLng destination) async {
-    try {
       final directionsResponse = await _directions.directions(
-        Location(lat: origin.latitude, lng: origin.longitude),
-        Location(lat: destination.latitude, lng: destination.longitude),
+        Location(
+            lat: _initialPosition.latitude, lng: _initialPosition.longitude),
+        Location(
+            lat: _destinationPosition.latitude,
+            lng: _destinationPosition.longitude),
+        travelMode: _travelMode,
         alternatives: true,
       );
 
       if (directionsResponse.isOkay) {
-        // Clear previous polylines
-        _polylines.clear();
-
-        PolylinePoints polylinePoints = PolylinePoints();
+        final PolylinePoints polylinePoints = PolylinePoints();
         double shortestDistance = double.infinity;
         Map<String, dynamic>? shortestRoute;
+
+        final newPolylines = <maps.Polyline>{};
 
         for (var route in directionsResponse.routes) {
           final encodedPolyline = route.overviewPolyline.points;
@@ -351,63 +377,177 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
           // Create a unique polyline for each route
           final polylineId = PolylineId(route.summary);
-          _polylines.add(maps.Polyline(
+          newPolylines.add(maps.Polyline(
             polylineId: polylineId,
             points: polylineLatLng,
             color: Colors.grey,
             width: 5,
-            onTap: () => _onRouteSelected(
-                route.toJson(), polylineId), // Ensure onTap works here
+            // onTap: () => _onRouteSelected(route.toJson(), polylineId),
           ));
         }
 
-        // Highlight shortest route
+        // Highlight the shortest route
         if (shortestRoute != null) {
-          _onRouteSelected(shortestRoute, PolylineId(shortestRoute['summary']));
+          final shortestPolylineId = PolylineId(shortestRoute['summary']);
+          newPolylines.add(
+            newPolylines
+                .firstWhere(
+                    (polyline) => polyline.polylineId == shortestPolylineId)
+                .copyWith(colorParam: AppColors.primary, widthParam: 8),
+          );
         }
-      } else {
-        print('Error fetching directions: ${directionsResponse.errorMessage}');
-      }
-      //  setState(() {
 
-      // });
+        // Update state with new polylines
+        setState(() {
+          _polylines = newPolylines;
+        });
+      } else {
+        debugPrint(
+            'Error fetching directions: ${directionsResponse.errorMessage}');
+      }
     } catch (e) {
-      print('Error fetching directions: $e');
+      debugPrint('Error fetching routes: $e');
     }
   }
 
-  void _onRouteSelected(Map<String, dynamic> route, PolylineId polylineId) {
-    setState(() {
-      print("Tapped on Polyline: $polylineId");
+  // void _onRouteSelected(Map<String, dynamic> route, PolylineId polylineId) {
+  //   setState(() {
+  //     debugPrint("Selected Route: ${route['summary']}");
 
-      // Reset all polyline colors to grey
-      _polylines = _polylines.map((polyline) {
-        return polyline.copyWith(colorParam: Colors.grey, widthParam: 5);
-      }).toSet();
+  //     // Reset all polyline colors to grey
+  //     _polylines = _polylines.map((polyline) {
+  //       return polyline.copyWith(colorParam: Colors.grey, widthParam: 5);
+  //     }).toSet();
 
-      // Find the selected polyline and change its color to blue
-      final selectedPolyline = _polylines.firstWhere(
-        (polyline) => polyline.polylineId == polylineId,
-      );
+  //     // Highlight the selected polyline
+  //     final selectedPolyline = _polylines.firstWhere(
+  //       (polyline) => polyline.polylineId == polylineId,
+  //     );
 
-      _polylines.remove(selectedPolyline);
+  //     _polylines.remove(selectedPolyline);
 
-      _polylines.add(
-        // selectedPolyline.copyWith(colorParam: Colors.blue, widthParam: 8),
-        selectedPolyline.copyWith(colorParam: AppColors.primary, widthParam: 8),
-      );
+  //     _polylines.add(
+  //       selectedPolyline.copyWith(colorParam: AppColors.primary, widthParam: 8),
+  //     );
+  //   });
+  // }
 
-      // Update the distance and duration for the selected route
-      // final legs = route['legs'][0];
-      // distanceText = legs['distance']['text'];
-      // durationText = legs['duration']['text'];
-      // setState(() {
-
-      // });
-
-      print("Selected Route: ${route['summary']}");
-    });
+  gmaps.TravelMode getTravelMode(String mode) {
+    switch (mode.toLowerCase()) {
+      case 'driving':
+        return gmaps.TravelMode.driving;
+      case 'walking':
+        return gmaps.TravelMode.walking;
+      case 'bicycling':
+        return gmaps.TravelMode.bicycling;
+      case 'transit':
+        return gmaps.TravelMode.transit;
+      default:
+        return gmaps.TravelMode.driving;
+    }
   }
+
+// Call this function when the travel mode changes
+  // void onTravelModeChanged(String mode) {
+  //   setState(() {
+  //     _selectedMode = mode;
+  //   });
+
+  //   // Fetch and redraw routes
+  //   _fetchAndDrawRoutes();
+  // }
+
+  // Future<void> getRoutesAndDrawPolylines(
+  //     LatLng origin, LatLng destination) async {
+  //   try {
+  //     final directionsResponse = await _directions.directions(
+  //       Location(lat: origin.latitude, lng: origin.longitude),
+  //       Location(lat: destination.latitude, lng: destination.longitude),
+  //       alternatives: true,
+  //     );
+
+  //     if (directionsResponse.isOkay) {
+  //       // Clear previous polylines
+  //       _polylines.clear();
+
+  //       PolylinePoints polylinePoints = PolylinePoints();
+  //       double shortestDistance = double.infinity;
+  //       Map<String, dynamic>? shortestRoute;
+
+  //       for (var route in directionsResponse.routes) {
+  //         final encodedPolyline = route.overviewPolyline.points;
+  //         final decodedPoints = polylinePoints.decodePolyline(encodedPolyline);
+  //         final polylineLatLng = decodedPoints
+  //             .map((point) => LatLng(point.latitude, point.longitude))
+  //             .toList();
+
+  //         final routeDistance = route.legs[0].distance.value;
+
+  //         // Find the shortest route
+  //         if (routeDistance < shortestDistance) {
+  //           shortestDistance = routeDistance.toDouble();
+  //           shortestRoute = route.toJson();
+  //         }
+
+  //         // Create a unique polyline for each route
+  //         final polylineId = PolylineId(route.summary);
+  //         _polylines.add(maps.Polyline(
+  //           polylineId: polylineId,
+  //           points: polylineLatLng,
+  //           color: Colors.grey,
+  //           width: 5,
+  //           onTap: () => _onRouteSelected(
+  //               route.toJson(), polylineId), // Ensure onTap works here
+  //         ));
+  //       }
+
+  //       // Highlight shortest route
+  //       if (shortestRoute != null) {
+  //         _onRouteSelected(shortestRoute, PolylineId(shortestRoute['summary']));
+  //       }
+  //     } else {
+  //       print('Error fetching directions: ${directionsResponse.errorMessage}');
+  //     }
+  //     //  setState(() {
+
+  //     // });
+  //   } catch (e) {
+  //     print('Error fetching directions: $e');
+  //   }
+  // }
+
+  // void _onRouteSelected(Map<String, dynamic> route, PolylineId polylineId) {
+  //   setState(() {
+  //     print("Tapped on Polyline: $polylineId");
+
+  //     // Reset all polyline colors to grey
+  //     _polylines = _polylines.map((polyline) {
+  //       return polyline.copyWith(colorParam: Colors.grey, widthParam: 5);
+  //     }).toSet();
+
+  //     // Find the selected polyline and change its color to blue
+  //     final selectedPolyline = _polylines.firstWhere(
+  //       (polyline) => polyline.polylineId == polylineId,
+  //     );
+
+  //     _polylines.remove(selectedPolyline);
+
+  //     _polylines.add(
+  //       // selectedPolyline.copyWith(colorParam: Colors.blue, widthParam: 8),
+  //       selectedPolyline.copyWith(colorParam: AppColors.primary, widthParam: 8),
+  //     );
+
+  //     // Update the distance and duration for the selected route
+  //     // final legs = route['legs'][0];
+  //     // distanceText = legs['distance']['text'];
+  //     // durationText = legs['duration']['text'];
+  //     // setState(() {
+
+  //     // });
+
+  //     print("Selected Route: ${route['summary']}");
+  //   });
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -438,11 +578,11 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
               )
             : hasLocationPermission
                 ? GestureDetector(
-                      onTap: () {
-          // Unfocus to dismiss the keyboard
-                  FocusScope.of(context).unfocus();
-                  },
-                  child: Stack(
+                    onTap: () {
+                      // Unfocus to dismiss the keyboard
+                      FocusScope.of(context).unfocus();
+                    },
+                    child: Stack(
                       children: [
                         GoogleMap(
                           onMapCreated: _onMapCreated,
@@ -473,7 +613,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                             cursorColor: Colors.blue,
                             decoration: const InputDecoration(
                               labelText: "Search",
-                              prefixIcon: Icon(Icons.search, color: Colors.grey),
+                              prefixIcon:
+                                  Icon(Icons.search, color: Colors.grey),
                               border: InputBorder.none,
                             ),
                             keyboardType: TextInputType.streetAddress,
@@ -495,7 +636,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                               ),
                             ),
                           ),
-                        ), 
+                        ),
                         if (_predictions.isNotEmpty)
                           Container(
                             margin: EdgeInsets.symmetric(
@@ -508,18 +649,19 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                                 final prediction = _predictions[index];
                                 return ListTile(
                                   title: Text(prediction.description ?? ''),
-                                  onTap: (){ 
-                                    _searchController.text = prediction.structuredFormatting?.mainText ?? _searchController.text;
-                                    _selectCity(prediction);},
-
+                                  onTap: () {
+                                    _searchController.text = prediction
+                                            .structuredFormatting?.mainText ??
+                                        _searchController.text;
+                                    _selectCity(prediction);
+                                  },
                                 );
                               },
                             ),
                           ),
-                        
                       ],
                     ),
-                )
+                  )
                 : Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -564,6 +706,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                   ),
         bottomSheet: showBottomSheet
             ? Container(
+              color: Colors.white,
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
@@ -644,11 +787,73 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                               fontSize: 16.sp, color: AppColors.primaryText),
                         ),
                       ),
+                      SizedBox(height: 20.h),
+                      // Transportation mode selection
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _transportationOption(
+                              icon: Icons.directions_car,
+                              label: "Car",
+                              mode: 'driving'),
+                          _transportationOption(
+                              icon: Icons.directions_walk,
+                              label: "Walking",
+                              mode: 'walking'),
+                          _transportationOption(
+                              icon: Icons.directions_bike,
+                              label: "Bike",
+                              mode: 'bicycling'),
+                          _transportationOption(
+                              icon: Icons.train,
+                              label: "Transit",
+                              mode: 'transit'),
+                        ],
+                      ),
                     ],
                   ),
                 ),
               )
             : SizedBox(),
+      ),
+    );
+  }
+
+  Widget _transportationOption(
+      {required IconData icon, required String label, required String mode}) {
+    return GestureDetector(
+      onTap: () async {
+        setState(() {
+          _selectedMode = mode;
+          _polylines.clear();
+          // Update directions based on the selected mode
+        });
+        await _fetchAndDrawRoutes();
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: _selectedMode == mode
+                  ? AppColors.primary
+                  : AppColors.dividerGrey,
+            ),
+            padding: EdgeInsets.all(8.sp),
+            child: Icon(icon, color: Colors.white),
+          ),
+          SizedBox(height: 5.h),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12.sp,
+              color: _selectedMode == mode
+                  ? AppColors.primaryText
+                  : AppColors.primaryGrey,
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -5,9 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:maps/screens/maps_home_screen.dart';
 import 'package:maps/screens/on_board_screen.dart';
-import 'package:maps/screens/signin_screen.dart';
 import 'package:maps/util/app_colors.dart';
-// import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -48,8 +46,8 @@ class _MyAppState extends State<MyApp> {
       });
 
       bool loggedIn = FirebaseAuth.instance.currentUser != null;
-
       print("myDebug Auto Login on Main $loggedIn");
+      
       return loggedIn;
     } catch (e) {
       // Show error if unable to check user status
