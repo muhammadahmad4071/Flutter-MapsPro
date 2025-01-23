@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-import 'package:geolocator/geolocator.dart';
+// import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_webservice/directions.dart' as gmaps;
 import 'package:google_maps_webservice/places.dart';
@@ -13,6 +13,7 @@ import 'package:http/http.dart' as http;
 import 'package:maps/screens/no_internet.dart';
 import 'package:maps/util/app_colors.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
+import 'package:location/location.dart' as loc;
 
 // import '../util/permission_services.dart';
 
@@ -30,7 +31,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   final GoogleMapsPlaces _places = GoogleMapsPlaces(apiKey: myApiKey);
   final gmaps.GoogleMapsDirections _directions =
       gmaps.GoogleMapsDirections(apiKey: myApiKey);
-  late GoogleMapController mapController;
+  GoogleMapController? mapController;
   late LatLng _initialPosition;
   late LatLng _destinationPosition;
   Marker? _startingMarker;
@@ -53,6 +54,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   final Connectivity _connectivity = Connectivity();
   List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+
+  final loc.Location _location = loc.Location();
+  late StreamSubscription<loc.LocationData> _locationSubscription;
 
   @override
   void initState() {
@@ -103,7 +107,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   Future<void> _initializeApp() async {
-    // Check location permissions and initialize user location
     bool permissionGranted = await _checkLocationPermission();
     if (permissionGranted) {
       await _initializeUserLocation();
@@ -114,63 +117,139 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   Future<bool> _checkLocationPermission() async {
-    LocationPermission permission = await Geolocator.requestPermission();
-
-    if (permission == LocationPermission.denied ||
-        permission == LocationPermission.deniedForever) {
-      setState(() {
-        hasLocationPermission = false;
-        isLoading = false;
-        debugPrint("myDebug isLoading _checkLocationPermission() $isLoading");
-      });
-      return false;
+    // location
+    loc.PermissionStatus permissionStatus = await _location.requestPermission();
+    if (permissionStatus == loc.PermissionStatus.granted) {
+      setState(() => hasLocationPermission = true);
+      debugPrint("myDebugLoc isLoading _checkLocationPermission() $isLoading");
+      return true;
     } else {
       setState(() {
-        hasLocationPermission = true;
+        hasLocationPermission = false;
+        // isLoading = false; // byme
       });
-      return true;
+      return false;
     }
+    //geolocator
+    // LocationPermission permission = await Geolocator.requestPermission();
+
+    // if (permission == LocationPermission.denied ||
+    //     permission == LocationPermission.deniedForever) {
+    //   setState(() {
+    //     hasLocationPermission = false;
+    //     isLoading = false;
+    //     debugPrint("myDebug isLoading _checkLocationPermission() $isLoading");
+    //   });
+    //   return false;
+    // } else {
+    //   setState(() {
+    //     hasLocationPermission = true;
+    //   });
+    //   return true;
+    // }
   }
 
   Future<void> _initializeUserLocation() async {
     try {
-      setState(() {
-        isLoading = true;
-      });
-      final position = await Geolocator.getCurrentPosition();
+      bool isServiceEnabled = await _location.serviceEnabled();
+      if (!isServiceEnabled) {
+        isServiceEnabled = await _location.requestService();
+        if (!isServiceEnabled) {
+          throw Exception("Location services are disabled.");
+        }
+      }
       final BitmapDescriptor customIcon = await getCustomIcon();
-      final userLatLng = LatLng(position.latitude, position.longitude);
 
-      setState(() {
-        _initialPosition = userLatLng;
-        _startingMarker = Marker(
-          icon: customIcon,
-          markerId: const MarkerId('userLocation'),
-          position: userLatLng,
-          infoWindow: const InfoWindow(title: "Your Current Location"),
-        );
-        isLoading = false; // Stop loading
-        debugPrint("myDebug isLoading _initializeUserLocation() $isLoading");
+      // Get the initial location
+      final locationData = await _location.getLocation();
+      _updateUserLocation(locationData, customIcon);
+      countryCode = await getCountryCode(LatLng(locationData.latitude!, locationData.longitude!));
+      // Listen for location updates
+      _locationSubscription =
+          _location.onLocationChanged.listen((loc.LocationData newLocation) {
+        _updateUserLocation(newLocation, customIcon);
       });
-
-      countryCode = await getCountryCode(userLatLng);
-      mapController.animateCamera(CameraUpdate.newLatLng(userLatLng));
+      // setState(() => isLoading = false); // byme
     } catch (e) {
-      debugPrint("myDebug Error retrieving location: $e");
+      debugPrint("Error initializing user location: $e");
       setState(() => isLoading = false);
     }
+
+    //geoLocator
+    // setState(() {
+    //   isLoading = true;
+    //   // });
+    //   final position = await Geolocator.getCurrentPosition();
+    //   final BitmapDescriptor customIcon = await getCustomIcon();
+    //   final userLatLng = LatLng(position.latitude, position.longitude);
+
+    //   setState(() {
+    //     _initialPosition = userLatLng;
+    //     _startingMarker = Marker(
+    //       icon: customIcon,
+    //       markerId: const MarkerId('userLocation'),
+    //       position: userLatLng,
+    //       infoWindow: const InfoWindow(title: "Your Current Location"),
+    //     );
+    //     isLoading = false; // Stop loading
+    //     debugPrint("myDebug isLoading _initializeUserLocation() $isLoading");
+    //   });
+
+    //   countryCode = await getCountryCode(userLatLng);
+    //   mapController.animateCamera(CameraUpdate.newLatLng(userLatLng));
+    // } catch (e) {
+    //   debugPrint("myDebug Error retrieving location: $e");
+    //   setState(() => isLoading = false);
+    // }
+  }
+
+  void _updateUserLocation(
+      loc.LocationData locationData, BitmapDescriptor _customIcon) {
+    final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
+
+    // GeoLocator
+    setState(() {
+      _initialPosition = userLatLng;
+      _startingMarker = Marker(
+        icon: _customIcon,
+        markerId: const MarkerId('userLocation'),
+        position: userLatLng,
+        infoWindow: const InfoWindow(title: "Your Current Location"),
+      );
+      isLoading = false; // Stop loading
+      debugPrint("myDebug isLoading _initializeUserLocation() $isLoading");
+    });
+
+    // location
+    // setState(() {
+    //   _initialPosition = userLatLng;
+    //   _startingMarker = Marker(
+    //     markerId: const MarkerId('userLocation'),
+    //     position: userLatLng,
+    //     icon: customIcon,
+    //     infoWindow: const InfoWindow(title: "Your Current Location"),
+    //   );
+    // });
+
+    mapController?.animateCamera(CameraUpdate.newLatLng(userLatLng));
   }
 
   Future<void> _moveToUserLocation() async {
     try {
       if (!hasLocationPermission) {
-        debugPrint("Permission not granted. Cannot move to location.");
+        debugPrint("myDebug Permission not granted. Cannot move to location.");
         return;
       }
 
-      final position = await Geolocator.getCurrentPosition();
-      final userLatLng = LatLng(position.latitude, position.longitude);
-      mapController.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
+//location
+      final locationData = await _location.getLocation();
+      final userLatLng =
+          LatLng(locationData.latitude!, locationData.longitude!);
+      mapController?.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
+      // geolocator
+      // final position = await Geolocator.getCurrentPosition();
+      // final userLatLng = LatLng(position.latitude, position.longitude);
+      // mapController.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
     } catch (e) {
       debugPrint("Error moving to location: $e");
     }
@@ -273,7 +352,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         showBottomSheet = true;
       });
 
-      mapController
+      mapController!
           .animateCamera(CameraUpdate.newLatLngZoom(_destinationPosition, 14));
 
       // Fetch and draw routes after destination is selected
@@ -636,9 +715,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                         SizedBox(height: 20.sp),
                         ElevatedButton(
                           onPressed: () async {
-                            await Geolocator.openAppSettings();
-                            await Geolocator.openLocationSettings();
-                            _checkLocationPermission();
+                            // await Geolocator.openAppSettings();
+                            // await Geolocator.openLocationSettings();
+                            // _checkLocationPermission();
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
