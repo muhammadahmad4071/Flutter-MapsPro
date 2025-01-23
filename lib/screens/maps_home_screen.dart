@@ -14,7 +14,7 @@ import 'package:maps/screens/no_internet.dart';
 import 'package:maps/util/app_colors.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 
-import '../util/permission_services.dart';
+// import '../util/permission_services.dart';
 
 class MapsHomeScreen extends StatefulWidget {
   const MapsHomeScreen({super.key});
@@ -25,31 +25,34 @@ class MapsHomeScreen extends StatefulWidget {
 
 class _MapsHomeScreenState extends State<MapsHomeScreen> {
   static const myApiKey = "AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk";
+  TextEditingController _searchController = TextEditingController();
+
+  final GoogleMapsPlaces _places = GoogleMapsPlaces(apiKey: myApiKey);
+  final gmaps.GoogleMapsDirections _directions =
+      gmaps.GoogleMapsDirections(apiKey: myApiKey);
   late GoogleMapController mapController;
   late LatLng _initialPosition;
   late LatLng _destinationPosition;
   Marker? _startingMarker;
   Marker? _destinationMarker;
-  TextEditingController _searchController = TextEditingController();
-  final GoogleMapsPlaces _places = GoogleMapsPlaces(apiKey: myApiKey);
-  final gmaps.GoogleMapsDirections _directions =
-      gmaps.GoogleMapsDirections(apiKey: myApiKey);
   Set<maps.Polyline> _polylines = {};
   List<Prediction> _predictions = [];
   late Prediction _prediction;
-  bool isLoading = true;
-  String? countryCode;
-  bool showBottomSheet = false;
   String? distanceText;
   String? durationText;
+  String? tollInfoText;
+
+  String _selectedMode = "driving";
+  String? countryCode;
+  bool isLoading = true;
+  bool showBottomSheet = false;
   bool hasLocationPermission = false;
+  bool isInternetConnected = true;
   // Position? userCurrentPosition;
   // Connectivity
-  bool isInternetConnected = true;
-  List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
   final Connectivity _connectivity = Connectivity();
+  List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
-  String _selectedMode = "driving";
 
   @override
   void initState() {
@@ -167,7 +170,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
       final position = await Geolocator.getCurrentPosition();
       final userLatLng = LatLng(position.latitude, position.longitude);
-      mapController.animateCamera(CameraUpdate.newLatLng(userLatLng));
+      mapController.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
     } catch (e) {
       debugPrint("Error moving to location: $e");
     }
@@ -291,7 +294,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       }
 
       final directionsUrl =
-          'https://maps.googleapis.com/maps/api/directions/json?origin=${_initialPosition.latitude},${_initialPosition.longitude}&destination=${_destinationPosition.latitude},${_destinationPosition.longitude}&mode=$_selectedMode&alternatives=true&key=AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk';
+          'https://maps.googleapis.com/maps/api/directions/json?origin=${_initialPosition.latitude},${_initialPosition.longitude}&destination=${_destinationPosition.latitude},${_destinationPosition.longitude}&mode=$_selectedMode&alternatives=true&key=$myApiKey';
+      // 'https://maps.googleapis.com/maps/api/directions/json?origin=New+York,NY&destination=Washington,DC&key=$myApiKey';
       debugPrint("Fetching directions: $directionsUrl");
 
       final response = await http.get(Uri.parse(directionsUrl));
@@ -301,6 +305,18 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         if (data['routes'] != null && data['routes'].isNotEmpty) {
           final route = data['routes'][0];
           final legs = route['legs'][0];
+
+          // final List<dynamic>? warnings = route['warnings'];
+          // bool containsTolls = warnings?.any((warning) =>
+          //         warning.toString().toLowerCase().contains('toll')) ??
+          //     false;
+
+          // SnackBar(
+          //   content: Text('Information about tolls: $containsTolls'),
+          //   backgroundColor: Colors.red, // Optional: Set a background color
+          //   duration:
+          //       Duration(seconds: 3), // Optional: Duration of the snackbar
+          // );
 
           setState(() {
             distanceText = legs['distance']['text'];
@@ -318,7 +334,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                   Duration(seconds: 3), // Optional: Duration of the snackbar
             ),
           );
-          // throw Exception('No routes found for the selected mode.');
         }
       } else {
         throw Exception('Failed to load directions: ${response.statusCode}');
@@ -332,8 +347,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-// Fetch and draw polylines for routes
-  // Update your function to use the correct Route type
   Future<void> getRoutesAndDrawPolylines() async {
     try {
       final _travelMode = getTravelMode(_selectedMode);
@@ -424,9 +437,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-// Use gmaps.Route in the onRouteSelected function
   void _onRouteSelected(gmaps.Route selectedRoute, PolylineId polylineId) {
-    // Highlight the selected route
     debugPrint(
         "myDebugPoly _onRouteSelected ${selectedRoute} polylineID: $polylineId");
     final updatedPolylines = _polylines.map((polyline) {
@@ -437,12 +448,19 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       }
     }).toSet();
 
+    // Check if the route contains tolls
+    final List<dynamic>? warnings = selectedRoute.warnings;
+    bool containsTolls = warnings?.any(
+            (warning) => warning.toString().toLowerCase().contains('toll')) ??
+        false;
+
     setState(() {
       _polylines = updatedPolylines;
       final selectedRouteDetails =
           selectedRoute.legs[0]; // First leg of the route
       distanceText = selectedRouteDetails.distance.text; // Distance as a string
       durationText = selectedRouteDetails.duration.text; // Duration as a string
+      tollInfoText = containsTolls ? "This Route Contain tools" : "Doesn't";
     });
 
     debugPrint('Route selected: ${selectedRoute.summary}');
@@ -460,6 +478,25 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         return gmaps.TravelMode.transit;
       default:
         return gmaps.TravelMode.driving;
+    }
+  }
+
+  String convertKmToMiles(String distanceText) {
+    final kmToMilesFactor = 0.621371;
+
+    // Extract the numeric value from the text
+    final regex = RegExp(r"([\d.]+)"); // Match numbers including decimals
+    final match = regex.firstMatch(distanceText);
+
+    if (match != null) {
+      final kmValue = double.parse(match.group(1)!); // Convert to double
+      final milesValue = kmValue * kmToMilesFactor;
+
+      // Return the formatted miles value with 'mi'
+      return "${milesValue.toStringAsFixed(2)} mi";
+    } else {
+      // If no number is found, return the original text
+      return distanceText;
     }
   }
 
@@ -493,20 +530,26 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             : hasLocationPermission
                 ? Stack(
                     children: [
-                      GoogleMap(
-                        onMapCreated: _onMapCreated,
-                        compassEnabled: false,
-                        mapType: MapType.terrain,
-                        initialCameraPosition: CameraPosition(
-                          target: _initialPosition,
-                          zoom: 14,
-                        ),
-                        markers: {
-                          if (_startingMarker != null) _startingMarker!,
-                          if (_destinationMarker != null) _destinationMarker!,
+                      GestureDetector(
+                        onTap: () {
+                          // Unfocus to dismiss the keyboard
+                          FocusScope.of(context).unfocus();
                         },
-                        polylines: _polylines,
-                        trafficEnabled: true,
+                        child: GoogleMap(
+                          onMapCreated: _onMapCreated,
+                          compassEnabled: false,
+                          mapType: MapType.terrain,
+                          initialCameraPosition: CameraPosition(
+                            target: _initialPosition,
+                            zoom: 14,
+                          ),
+                          markers: {
+                            if (_startingMarker != null) _startingMarker!,
+                            if (_destinationMarker != null) _destinationMarker!,
+                          },
+                          polylines: _polylines,
+                          trafficEnabled: true,
+                        ),
                       ),
                       Container(
                         margin: const EdgeInsets.symmetric(
@@ -530,17 +573,20 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                       ),
                       Positioned(
                         top: 100.h,
-                        right: 30.w,
-                        child: Container(
-                          color: Colors.white.withAlpha(230),
-                          height: 36.h,
-                          width: 36.w,
-                          child: Center(
-                            child: IconButton(
-                              iconSize: 22.sp,
-                              color: AppColors.primaryGrey,
-                              onPressed: _moveToUserLocation,
-                              icon: Icon(Icons.my_location_outlined),
+                        right: 20.w,
+                        child: CircleAvatar(
+                          backgroundColor: Colors.white,
+                          radius: 22.sp,
+                          // foregroundColor: const Color.fromARGB(255, 206, 158, 0),
+                          child: CircleAvatar(
+                            backgroundColor: AppColors.secondary,
+                            child: Center(
+                              child: IconButton(
+                                iconSize: 22.sp,
+                                color: AppColors.primaryGrey,
+                                onPressed: _moveToUserLocation,
+                                icon: Icon(Icons.my_location_outlined),
+                              ),
                             ),
                           ),
                         ),
@@ -613,18 +659,79 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                   ),
         bottomSheet: showBottomSheet
             ? Container(
-                color: Colors.white,
+                // color: Colors.black,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(25.r), // Top-left corner rounded
+                    topRight: Radius.circular(25.r), // Top-right corner rounded
+                  ),
+                ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16.0),
+                  padding:
+                      EdgeInsets.only(left: 16.w, right: 16.w, bottom: 16.w),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Container(
+                        height: 4.h, // Height of the divider
+                        width: double
+                            .infinity, // Full width or customize as needed
+                        margin: EdgeInsets.symmetric(
+                            horizontal: 150.w,
+                            vertical: 16.h), // Adjust margin as needed
+                        decoration: BoxDecoration(
+                          color: AppColors.dividerGrey, // Divider color
+                          borderRadius:
+                              BorderRadius.circular(2.h), // Rounded edges
+                        ),
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _transportationOption(
+                              icon: Icons.directions_car,
+                              label: "Car",
+                              mode: 'driving'),
+                          _transportationOption(
+                              icon: Icons.directions_walk,
+                              label: "Walking",
+                              mode: 'walking'),
+                          _transportationOption(
+                              icon: Icons.directions_bike,
+                              label: "Bike",
+                              mode: 'bicycling'),
+                          _transportationOption(
+                              icon: Icons.train,
+                              label: "Transit",
+                              mode: 'transit'),
+                        ],
+                      ),
+                      Divider(color: AppColors.textField),
+                      // Row(
+                      //   crossAxisAlignment: CrossAxisAlignment.center,
+                      //   children: [
+                      //     Icon(Icons.alt_route_outlined,
+                      //         size: 22.sp, color: AppColors.dividerGrey),
+                      //     SizedBox(width: 5.w),
+                      //     Padding(
+                      //       padding: EdgeInsets.only(top: 3.h),
+                      //       child: Text(
+                      //         tollInfoText ?? "N/A",
+                      //         style: TextStyle(
+                      //             fontSize: 14.sp,
+                      //             color: AppColors.primaryGrey),
+                      //         textAlign: TextAlign.center,
+                      //       ),
+                      //     ),
+                      //   ],
+                      // ),
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Icon(Icons.access_time_filled,
-                              color: AppColors.dividerGrey),
+                              size: 22.sp, color: AppColors.dividerGrey),
                           SizedBox(width: 5.w),
                           Padding(
                             padding: EdgeInsets.only(top: 3.h),
@@ -647,7 +754,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                           Padding(
                             padding: EdgeInsets.only(top: 3.h),
                             child: Text(
-                              distanceText.toString(),
+                              convertKmToMiles(distanceText.toString()),
                               style: TextStyle(
                                   fontSize: 14.sp,
                                   color: AppColors.primaryGrey),
@@ -683,7 +790,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                           padding: EdgeInsets.symmetric(
                               horizontal: 40.w, vertical: 15.h),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(50.sp),
+                            borderRadius: BorderRadius.circular(10.sp),
                           ),
                           minimumSize:
                               Size(MediaQuery.of(context).size.width, 50.sp),
@@ -696,27 +803,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                       ),
                       SizedBox(height: 20.h),
                       // Transportation mode selection
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _transportationOption(
-                              icon: Icons.directions_car,
-                              label: "Car",
-                              mode: 'driving'),
-                          _transportationOption(
-                              icon: Icons.directions_walk,
-                              label: "Walking",
-                              mode: 'walking'),
-                          _transportationOption(
-                              icon: Icons.directions_bike,
-                              label: "Bike",
-                              mode: 'bicycling'),
-                          _transportationOption(
-                              icon: Icons.train,
-                              label: "Transit",
-                              mode: 'transit'),
-                        ],
-                      ),
                     ],
                   ),
                 ),
@@ -742,24 +828,34 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         children: [
           Container(
             decoration: BoxDecoration(
-              shape: BoxShape.circle,
+              shape: BoxShape.rectangle,
+              borderRadius: BorderRadius.all(Radius.circular(8.sp)),
               color: _selectedMode == mode
-                  ? AppColors.primary
-                  : AppColors.dividerGrey,
+                  ? AppColors.secondary
+                  : AppColors.textField,
+              border: _selectedMode == mode
+                  ? Border.all(
+                      color: AppColors.primary,
+                      width: 1.w,
+                    )
+                  : Border.all(
+                      color: Colors.white,
+                      width: 1.w,
+                    ),
             ),
             padding: EdgeInsets.all(8.sp),
-            child: Icon(icon, color: Colors.white),
+            child: Icon(icon, color: AppColors.primaryText),
           ),
           SizedBox(height: 5.h),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12.sp,
-              color: _selectedMode == mode
-                  ? AppColors.primaryText
-                  : AppColors.primaryGrey,
-            ),
-          ),
+          // Text(
+          //   label,
+          //   style: TextStyle(
+          //     fontSize: 12.sp,
+          //     color: _selectedMode == mode
+          //         ? AppColors.primaryText
+          //         : AppColors.primaryGrey,
+          //   ),
+          // ),
         ],
       ),
     );
