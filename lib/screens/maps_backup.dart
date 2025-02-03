@@ -3,978 +3,15 @@
 // import 'package:connectivity_plus/connectivity_plus.dart';
 // import 'package:flutter/material.dart';
 // import 'package:flutter/services.dart';
-// import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 // import 'package:flutter_screenutil/flutter_screenutil.dart';
 // import 'package:geolocator/geolocator.dart';
 // import 'package:google_maps_flutter/google_maps_flutter.dart';
-// import 'package:google_maps_webservice/directions.dart';
 // import 'package:google_maps_webservice/places.dart';
 // import 'package:http/http.dart' as http;
 // import 'package:maps/screens/no_internet.dart';
 // import 'package:maps/util/app_colors.dart';
-// import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
-// import 'package:google_maps_flutter/google_maps_flutter.dart';
-
-// class MapsHomeScreen extends StatefulWidget {
-//   const MapsHomeScreen({super.key});
-
-//   @override
-//   State<MapsHomeScreen> createState() => _MapsHomeScreenState();
-// }
-
-// class _MapsHomeScreenState extends State<MapsHomeScreen> {
-//   static const myApiKey = "AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk";
-//   late GoogleMapController mapController;
-//   late LatLng _initialPosition;
-//   Marker? _startingMarker;
-//   Marker? _destinationMarker;
-//   TextEditingController _searchController = TextEditingController();
-//   final GoogleMapsPlaces _places = GoogleMapsPlaces(apiKey: myApiKey);
-//   final GoogleMapsDirections _directions =
-//       GoogleMapsDirections(apiKey: myApiKey);
-//   Set<maps.Polyline> _polylines = {};
-//   List<Prediction> _predictions = [];
-//   late Prediction _prediction;
-//   bool isLoading = true;
-//   String? countryCode;
-//   bool showBottomSheet = false;
-//   String? distanceText;
-//   String? durationText;
-//   bool hasLocationPermission = false;
-//   bool isInternetConnected = true;
-//   List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
-//   final Connectivity _connectivity = Connectivity();
-//   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
-
-//   @override
-//   void initState() {
-//     super.initState();
-//     _initializeApp();
-//     initConnectivity();
-//     _connectivitySubscription =
-//         _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
-//   }
-
-//   Future<void> initConnectivity() async {
-//     List<ConnectivityResult> result;
-
-//     try {
-//       result = await _connectivity.checkConnectivity();
-//     } on PlatformException catch (e) {
-//       print("Connectivity error: $e");
-//       return;
-//     }
-
-//     // Update the UI based on the connectivity result
-//     if (!mounted) return;
-
-//     _updateConnectionStatus(result);
-//   }
-
-//   Future<void> _updateConnectionStatus(List<ConnectivityResult> result) async {
-//     setState(() {
-//       _connectionStatus = result;
-
-//       // Check if any connectivity result is either wifi or mobile
-//       isInternetConnected = result.contains(ConnectivityResult.wifi) ||
-//           result.contains(ConnectivityResult.mobile);
-//     });
-
-//     print('Connectivity changed: $_connectionStatus bool $isInternetConnected');
-//   }
-
-//   @override
-//   void dispose() {
-//     // Don't forget to cancel the subscription when the widget is disposed
-//     _connectivitySubscription.cancel();
-//     mapController.dispose();
-//     super.dispose();
-//   }
-
-//   void _onMapCreated(GoogleMapController controller) {
-//     mapController = controller;
-//     setState(() {
-//       isLoading = false;
-//     });
-//   }
-
-//   Future<bool> _initializeApp() async {
-//     bool permissionGranted = await _checkLocationPermission();
-//     if (permissionGranted) {
-//       // await _initializeUserLocation();
-//       return await _initializeUserLocation(); // Initialization successful
-//     }
-//     return false; // Initialization failed (e.g., no permission)
-//   }
-
-//   // Future<void> _initializeApp() async {
-//   //   // Check location permissions and initialize user location
-//   //   bool permissionGranted = await _checkLocationPermission();
-//   //   if (permissionGranted) {
-//   //     await _initializeUserLocation();
-//   //   } else {
-//   //     // setState(() => isLoading = false); // Stop loading if no permission
-//   //   }
-//   //   debugPrint("myDebug isLoading _initializeApp() $isLoading");
-//   // }
-
-//   Future<bool> _checkLocationPermission() async {
-//     LocationPermission permission = await Geolocator.requestPermission();
-
-//     if (permission == LocationPermission.denied ||
-//         permission == LocationPermission.deniedForever) {
-//       setState(() {
-//         hasLocationPermission = false;
-//         // isLoading = false;
-//         // debugPrint("myDebug isLoading _checkLocationPermission() $isLoading");
-//       });
-//       return false;
-//     } else {
-//       setState(() {
-//         hasLocationPermission = true;
-//       });
-//       return true;
-//     }
-//   }
-
-//   Future<bool> _initializeUserLocation() async {
-//     try {
-//       // setState(() {
-//       //   isLoading = true;
-//       // });
-//       final position = await Geolocator.getCurrentPosition();
-//       final BitmapDescriptor customIcon = await getCustomIcon();
-//       final userLatLng = LatLng(position.latitude, position.longitude);
-
-//       setState(() {
-//         _initialPosition = userLatLng;
-//         _startingMarker = Marker(
-//           icon: customIcon,
-//           markerId: const MarkerId('userLocation'),
-//           position: userLatLng,
-//           infoWindow: const InfoWindow(title: "Your Current Location"),
-//         );
-//         // isLoading = false; // Stop loading
-//         // debugPrint("myDebug isLoading _initializeUserLocation() $isLoading");
-//       });
-
-//       countryCode = await getCountryCode(userLatLng);
-//       mapController.animateCamera(CameraUpdate.newLatLng(userLatLng));
-//       return true;
-//     } catch (e) {
-//       debugPrint("myDebug Error retrieving location: $e");
-//       return false;
-//       // setState(() => isLoading = false);
-//     }
-//   }
-
-//   Future<void> _moveToUserLocation() async {
-//     try {
-//       if (!hasLocationPermission) {
-//         debugPrint("Permission not granted. Cannot move to location.");
-//         return;
-//       }
-
-//       final position = await Geolocator.getCurrentPosition();
-//       final userLatLng = LatLng(position.latitude, position.longitude);
-//       mapController.animateCamera(CameraUpdate.newLatLng(userLatLng));
-//     } catch (e) {
-//       debugPrint("Error moving to location: $e");
-//     }
-//   }
-
-//   void _searchCities(String query) async {
-//     if (query.isEmpty) {
-//       setState(() {
-//         _predictions = [];
-//       });
-//       return;
-//     }
-
-//     // if(countryCode!.isNotEmpty){
-//     final response = await _places.autocomplete(
-//       query,
-//       // types: ['(cities)'], // Restrict to cities
-//       components: [Component(Component.country, countryCode.toString())],
-//     );
-//     // }
-
-//     if (response.isOkay) {
-//       setState(() {
-//         _predictions = response.predictions;
-//       });
-//     } else {
-//       debugPrint("Places API error: ${response.errorMessage}");
-//     }
-//   }
-
-//   Future<String?> getCountryCode(LatLng userCoordinates) async {
-//     try {
-//       // Get the nearest place details using the Places API reverse geocode
-//       final response = await _places.searchNearbyWithRadius(
-//         Location(lat: userCoordinates.latitude, lng: userCoordinates.longitude),
-//         50, // 50 meters radius for higher accuracy
-//       );
-
-//       if (response.isOkay && response.results.isNotEmpty) {
-//         final placeId = response.results.first.placeId;
-
-//         // if (placeId != null) {
-//         // Fetch place details to extract country code
-//         final placeDetailsResponse = await _places.getDetailsByPlaceId(placeId);
-
-//         if (placeDetailsResponse.isOkay) {
-//           final addressComponents =
-//               placeDetailsResponse.result.addressComponents;
-
-//           // Extract the country code
-//           final countryComponent = addressComponents.firstWhere(
-//             (component) => component.types.contains('country'),
-//             orElse: () =>
-//                 AddressComponent(longName: '', shortName: '', types: []),
-//           );
-//           print("myDebug country ${countryComponent.shortName}");
-//           return countryComponent.shortName; // Return the ISO country code
-//         }
-//         // }
-//       }
-//       return null; // Return null if no country found
-//     } catch (e) {
-//       print('Error fetching country code: $e');
-//       return null;
-//     }
-//   }
-
-//   // String getCityTitle(Prediction prediction) {
-//   //   String description = prediction.description ?? '';
-//   //   return description.split(',')[0]; // Extract the first part
-//   // }
-
-//   Future<BitmapDescriptor> getCustomIcon() async {
-//     return await BitmapDescriptor.asset(
-//       ImageConfiguration(size: Size(24.w, 24.h)), // Specify desired size
-//       'assets/current_location_marker.png',
-//       // 'assets/anim_location.gif',21302130
-//     );
-//   }
-
-//   void _selectCity(Prediction prediction) async {
-//     setState(() {
-//       _predictions.clear();
-//     });
-//     // void _selectCity(Prediction prediction) async {
-//     final placeDetails = await _places.getDetailsByPlaceId(prediction.placeId!);
-//     if (placeDetails.isOkay) {
-//       final location = placeDetails.result.geometry!.location;
-//       final cityPosition = LatLng(location.lat, location.lng);
-
-//       // Retrieve user's current location
-//       final userPosition = _initialPosition;
-//       getRoutesAndDrawPolylines(_initialPosition, cityPosition);
-
-//       // Fetch distance and duration from Directions API
-//       final directionsResponse =
-//           await _fetchDirections(userPosition, cityPosition);
-//       distanceText = directionsResponse['distanceText'];
-//       durationText = directionsResponse['durationText'];
-
-//       setState(() {
-//         _prediction = prediction;
-//         _destinationMarker = Marker(
-//           markerId: const MarkerId('cityLocation'),
-//           position: cityPosition,
-//           infoWindow: InfoWindow(title: prediction.description),
-//         );
-//         showBottomSheet = true;
-//       });
-
-//       mapController.animateCamera(CameraUpdate.newLatLngZoom(cityPosition, 14));
-
-//       // Dismiss the keyboard when a city is selected
-//       FocusScope.of(context).unfocus();
-
-//       // _predictions = [];
-//     } else {
-//       debugPrint("Error fetching place details: ${placeDetails.errorMessage}");
-//       setState(() {
-//         showBottomSheet = false;
-//       });
-//     }
-//   }
-
-//   Future<Map<String, String>> _fetchDirections(
-//       LatLng origin, LatLng destination) async {
-//     final directionsUrl =
-//         'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${destination.latitude},${destination.longitude}&key=AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk';
-//     print("Distance Function: $directionsUrl");
-//     try {
-//       final response = await http.get(Uri.parse(directionsUrl));
-//       if (response.statusCode == 200) {
-//         final data = json.decode(response.body);
-//         final route = data['routes'][0];
-//         final legs = route['legs'][0];
-
-//         final distanceText = legs['distance']['text'];
-//         final durationText = legs['duration']['text'];
-
-//         return {'distanceText': distanceText, 'durationText': durationText};
-//       } else {
-//         throw Exception('Failed to load directions');
-//       }
-//     } catch (e) {
-//       debugPrint('Error fetching directions: $e');
-//       return {'distanceText': 'N/A', 'durationText': 'N/A'};
-//     }
-//   }
-
-//   Future<void> getRoutesAndDrawPolylines(
-//       LatLng origin, LatLng destination) async {
-//     try {
-//       final directionsResponse = await _directions.directions(
-//         Location(lat: origin.latitude, lng: origin.longitude),
-//         Location(lat: destination.latitude, lng: destination.longitude),
-//         alternatives: true,
-//       );
-
-//       if (directionsResponse.isOkay) {
-//         // Clear previous polylines
-//         _polylines.clear();
-
-//         PolylinePoints polylinePoints = PolylinePoints();
-//         double shortestDistance = double.infinity;
-//         Map<String, dynamic>? shortestRoute;
-
-//         for (var route in directionsResponse.routes) {
-//           final encodedPolyline = route.overviewPolyline.points;
-//           final decodedPoints = polylinePoints.decodePolyline(encodedPolyline);
-//           final polylineLatLng = decodedPoints
-//               .map((point) => LatLng(point.latitude, point.longitude))
-//               .toList();
-
-//           final routeDistance = route.legs[0].distance.value;
-
-//           // Find the shortest route
-//           if (routeDistance < shortestDistance) {
-//             shortestDistance = routeDistance.toDouble();
-//             shortestRoute = route.toJson();
-//           }
-
-//           // Create a unique polyline for each route
-//           final polylineId = PolylineId(route.summary);
-//           _polylines.add(maps.Polyline(
-//             polylineId: polylineId,
-//             points: polylineLatLng,
-//             color: Colors.grey,
-//             width: 5,
-//             onTap: () => _onRouteSelected(
-//                 route.toJson(), polylineId), // Ensure onTap works here
-//           ));
-//         }
-
-//         // Highlight shortest route
-//         if (shortestRoute != null) {
-//           _onRouteSelected(shortestRoute, PolylineId(shortestRoute['summary']));
-//         }
-//       } else {
-//         print('Error fetching directions: ${directionsResponse.errorMessage}');
-//       }
-//       //  setState(() {
-
-//       // });
-//     } catch (e) {
-//       print('Error fetching directions: $e');
-//     }
-//   }
-
-//   void _onRouteSelected(Map<String, dynamic> route, PolylineId polylineId) {
-//     setState(() {
-//       print("Tapped on Polyline: $polylineId");
-
-//       // Reset all polyline colors to grey
-//       _polylines = _polylines.map((polyline) {
-//         return polyline.copyWith(colorParam: Colors.grey, widthParam: 5);
-//       }).toSet();
-
-//       // Find the selected polyline and change its color to blue
-//       final selectedPolyline = _polylines.firstWhere(
-//         (polyline) => polyline.polylineId == polylineId,
-//       );
-
-//       _polylines.remove(selectedPolyline);
-
-//       _polylines.add(
-//         // selectedPolyline.copyWith(colorParam: Colors.blue, widthParam: 8),
-//         selectedPolyline.copyWith(colorParam: AppColors.primary, widthParam: 8),
-//       );
-
-//       // Update the distance and duration for the selected route
-//       // final legs = route['legs'][0];
-//       // distanceText = legs['distance']['text'];
-//       // durationText = legs['duration']['text'];
-//       // setState(() {
-
-//       // });
-
-//       print("Selected Route: ${route['summary']}");
-//     });
-//   }
-
-//   Widget showCircularProgressLoader() {
-//     return Center(
-//       child: Column(
-//         mainAxisAlignment: MainAxisAlignment.center,
-//         children: [
-//           CircularProgressIndicator(),
-//           SizedBox(height: 20.sp),
-//           Text(
-//             "Loading Maps...",
-//             textAlign: TextAlign.center,
-//             style: TextStyle(
-//               fontWeight: FontWeight.w500,
-//               color: AppColors.primaryText,
-//               fontSize: 14.sp,
-//             ),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-
-//   Widget showMaps() {
-//     return isLoading ?  GestureDetector(
-//       onTap: () {
-//         // Unfocus to dismiss the keyboard
-//         FocusScope.of(context).unfocus();
-//       },
-//       child: Stack(
-//         children: [
-//           GoogleMap(
-//             compassEnabled: false,
-//             mapType: MapType.terrain,
-//             initialCameraPosition: CameraPosition(
-//               target: _initialPosition,
-//               zoom: 14,
-//             ),
-//             onMapCreated: _onMapCreated,
-//             markers: {
-//               if (_startingMarker != null) _startingMarker!,
-//               if (_destinationMarker != null) _destinationMarker!,
-//             },
-//             polylines: _polylines,
-//             trafficEnabled: true,
-//           ),
-//           Container(
-//             margin: const EdgeInsets.symmetric(vertical: 24, horizontal: 20),
-//             decoration: BoxDecoration(
-//               color: Colors.white,
-//               borderRadius: BorderRadius.circular(50),
-//             ),
-//             child: TextField(
-//               controller: _searchController,
-//               onChanged: _searchCities,
-//               style: const TextStyle(color: Colors.black),
-//               cursorColor: Colors.blue,
-//               decoration: const InputDecoration(
-//                 labelText: "Search",
-//                 prefixIcon: Icon(Icons.search, color: Colors.grey),
-//                 border: InputBorder.none,
-//               ),
-//               keyboardType: TextInputType.streetAddress,
-//             ),
-//           ),
-//           Positioned(
-//             top: 100.h,
-//             right: 30.w,
-//             child: Container(
-//               color: Colors.white.withAlpha(230),
-//               height: 36.h,
-//               width: 36.w,
-//               child: Center(
-//                 child: IconButton(
-//                   iconSize: 22.sp,
-//                   color: AppColors.primaryGrey,
-//                   onPressed: _moveToUserLocation,
-//                   icon: Icon(Icons.my_location_outlined),
-//                 ),
-//               ),
-//             ),
-//           ),
-//           if (_predictions.isNotEmpty)
-//             Container(
-//               margin: EdgeInsets.symmetric(horizontal: 20.w, vertical: 80.h),
-//               color: Colors.white,
-//               child: ListView.builder(
-//                 shrinkWrap: true,
-//                 itemCount: _predictions.length,
-//                 itemBuilder: (context, index) {
-//                   final prediction = _predictions[index];
-//                   return ListTile(
-//                     title: Text(prediction.description ?? ''),
-//                     onTap: () {
-//                       _searchController.text =
-//                           prediction.structuredFormatting?.mainText ??
-//                               _searchController.text;
-//                       _selectCity(prediction);
-//                     },
-//                   );
-//                 },
-//               ),
-//             ),
-//         ],
-//       ),
-//     ) : showCircularProgressLoader();
-//   }
-
-//   Widget showPermissionScreen() {
-//     return Center(
-//       child: Column(
-//         mainAxisAlignment: MainAxisAlignment.center,
-//         children: [
-//           Icon(
-//             Icons.location_off,
-//             size: 80.sp,
-//             color: Colors.grey,
-//           ),
-//           SizedBox(height: 20.sp),
-//           Text(
-//             "Please allow location permissions\nto use the app",
-//             textAlign: TextAlign.center,
-//             style: TextStyle(
-//               fontSize: 16.sp,
-//               color: Colors.grey,
-//             ),
-//           ),
-//           SizedBox(height: 20.sp),
-//           ElevatedButton(
-//             onPressed: () async {
-//               await Geolocator.openAppSettings();
-//               await Geolocator.openLocationSettings();
-//               _checkLocationPermission();
-//             },
-//             style: ElevatedButton.styleFrom(
-//               backgroundColor: AppColors.primary,
-//               padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
-//               shape: RoundedRectangleBorder(
-//                 borderRadius: BorderRadius.circular(50.sp),
-//               ),
-//             ),
-//             child: Text(
-//               'Grant Permissions',
-//               style: TextStyle(fontSize: 16.sp, color: AppColors.primaryText),
-//             ),
-//           ),
-//         ],
-//       ),
-//     );
-//   }
-
-//   Widget bottomSheetDesign() {
-//     return showBottomSheet
-//         ? Container(
-//             child: Padding(
-//               padding: const EdgeInsets.all(16.0),
-//               child: Column(
-//                 mainAxisSize: MainAxisSize.min,
-//                 crossAxisAlignment: CrossAxisAlignment.start,
-//                 children: [
-//                   Row(
-//                     crossAxisAlignment: CrossAxisAlignment.center,
-//                     children: [
-//                       Icon(Icons.access_time_filled,
-//                           color: AppColors.dividerGrey),
-//                       SizedBox(width: 5.w),
-//                       Padding(
-//                         padding: EdgeInsets.only(top: 3.h),
-//                         child: Text(
-//                           durationText ?? "N/A",
-//                           style: TextStyle(
-//                               fontSize: 14.sp, color: AppColors.primaryGrey),
-//                           textAlign: TextAlign.center,
-//                         ),
-//                       ),
-//                     ],
-//                   ),
-//                   Row(
-//                     crossAxisAlignment: CrossAxisAlignment.center,
-//                     children: [
-//                       Icon(Icons.location_pin, color: AppColors.dividerGrey),
-//                       SizedBox(width: 5.w),
-//                       Padding(
-//                         padding: EdgeInsets.only(top: 3.h),
-//                         child: Text(
-//                           distanceText.toString(),
-//                           style: TextStyle(
-//                               fontSize: 14.sp, color: AppColors.primaryGrey),
-//                           textAlign: TextAlign.center,
-//                         ),
-//                       ),
-//                     ],
-//                   ),
-//                   Divider(color: AppColors.textField),
-//                   Text(
-//                     _prediction.structuredFormatting?.mainText ?? "N/A",
-//                     style: TextStyle(
-//                       fontSize: 20.sp,
-//                       color: AppColors.primaryText,
-//                       fontWeight: FontWeight.bold,
-//                     ),
-//                   ),
-//                   SizedBox(height: 10.h),
-//                   Text(
-//                     '${_prediction.description}',
-//                     style: TextStyle(
-//                       fontSize: 14.sp,
-//                       color: AppColors.dividerGrey,
-//                     ),
-//                   ),
-//                   SizedBox(height: 20),
-//                   ElevatedButton(
-//                     onPressed: () {
-//                       // Handle start button click
-//                     },
-//                     style: ElevatedButton.styleFrom(
-//                       backgroundColor: AppColors.primary,
-//                       padding: EdgeInsets.symmetric(
-//                           horizontal: 40.w, vertical: 15.h),
-//                       shape: RoundedRectangleBorder(
-//                         borderRadius: BorderRadius.circular(50.sp),
-//                       ),
-//                       minimumSize:
-//                           Size(MediaQuery.of(context).size.width, 50.sp),
-//                     ),
-//                     child: Text(
-//                       'Start',
-//                       style: TextStyle(
-//                           fontSize: 16.sp, color: AppColors.primaryText),
-//                     ),
-//                   ),
-//                 ],
-//               ),
-//             ),
-//           )
-//         : SizedBox();
-//   }
-
-//   @override
-//   Widget build(BuildContext context) {
-//     if (!isInternetConnected) {
-//       return NoInternetWidget();
-//     }
-
-//     return FutureBuilder<bool>(
-//     future: _initializeUserLocation(), // Initialize app and check permissions
-//     builder: (context, snapshot) {
-//       if (snapshot.connectionState == ConnectionState.waiting) {
-//         // Show loader while initializing
-//         return SafeArea(
-//           child: Scaffold(
-//             body: showCircularProgressLoader(),
-//           ),
-//         );
-//       }
-
-//       if (snapshot.data == true && !hasLocationPermission) {
-//         // Handle error or missing permissions
-//         return SafeArea(
-//           child: Scaffold(
-//             body: showPermissionScreen(),
-//           ),
-//         );
-//       }
-
-//       if (snapshot.data == true) {
-//         // Handle error or missing permissions
-//         return SafeArea(
-//           child: Scaffold(
-//             body: showPermissionScreen(),
-//           ),
-//         );
-//       }
-
-//       // Show the map when initialization is successful
-//       return SafeArea(
-//         child: Scaffold(
-//           resizeToAvoidBottomInset: false,
-//           body: showMaps(),
-//           bottomSheet: bottomSheetDesign(),
-//         ),
-//       );
-//     },
-//   );
-
-//   //   return SafeArea(
-//   //     child: Scaffold(
-//   //         resizeToAvoidBottomInset: false,
-//   //         body: hasLocationPermission
-//   //             ? isLoading
-//   //                 ? showMaps()
-//   //                 : showCircularProgressLoader()
-//   //             : showPermissionScreen(),
-//   //         bottomSheet: bottomSheetDesign()),
-//   //   );
-//   // }
-// }
-// }
-
-
-
-
-// // Commented backed up functions
-// // Select City Working
-// // void _selectCity(Prediction prediction) async {
-// //   final placeDetails = await _places.getDetailsByPlaceId(prediction.placeId!);
-// //   if (placeDetails.isOkay) {
-// //     final location = placeDetails.result.geometry!.location;
-// //     final cityPosition = LatLng(location.lat, location.lng);
-
-// //     setState(() {
-// //       _userMarker = Marker(
-// //         markerId: const MarkerId('cityLocation'),
-// //         position: cityPosition,
-// //         infoWindow: InfoWindow(title: prediction.description),
-// //       );
-// //     });
-
-// //     mapController.animateCamera(CameraUpdate.newLatLngZoom(cityPosition, 14));
-
-// //     // Dismiss the keyboard when a city is selected
-// //     FocusScope.of(context).unfocus();
-
-// //     // Show the Bottom Sheet with the details
-// //     showModalBottomSheet(
-// //       backgroundColor: Colors.white,
-// //       context: context,
-// //       isScrollControlled: true,  // To ensure the bottom sheet can expand
-// //       builder: (BuildContext context) {
-// //         return           Padding(
-// //           padding: const EdgeInsets.all(16.0),
-// //           child: Column(
-// //             mainAxisSize: MainAxisSize.min,
-// //             crossAxisAlignment: CrossAxisAlignment.start,
-// //             children: [
-// //               Row(
-// //                 crossAxisAlignment: CrossAxisAlignment.center,
-// //                 children: [
-// //                 Icon(Icons.access_time_filled, color: AppColors.dividerGrey,),
-// //                 SizedBox(width: 5.w,),
-// //                 Padding(
-// //                   padding: EdgeInsets.only(top: 3.h),
-// //                   child: Text("10 Min", style: TextStyle(fontSize: 14.sp, color: AppColors.primaryGrey), textAlign: TextAlign.center,),
-// //                 )
-// //               ]),
-// //               Row(
-// //                 crossAxisAlignment: CrossAxisAlignment.center,
-// //                 children: [
-// //                 Icon(Icons.location_pin, color: AppColors.dividerGrey,),
-// //                 SizedBox(width: 5.w,),
-// //                 Padding(
-// //                   padding: EdgeInsets.only(top: 3.h),
-// //                   child: Text('${prediction.distanceMeters}', style: TextStyle(fontSize: 14.sp, color: AppColors.primaryGrey), textAlign: TextAlign.center,),
-// //                 )
-// //               ]),
-// //               Divider(color: AppColors.textField,),
-// //               Text(
-// //                 '${prediction.id}',
-// //                 style: TextStyle(
-// //                   fontSize: 20.sp,
-// //                   color: AppColors.primaryText,
-// //                   fontWeight: FontWeight.bold,
-// //                 ),
-// //               ),
-// //               SizedBox(height: 10.h),
-// //               Text(
-// //                 '${prediction.description}',
-// //                 style: TextStyle(
-// //                   fontSize: 14.sp,
-// //                   color: AppColors.dividerGrey,
-// //                 ),
-// //               ),
-// //               SizedBox(height: 20),
-// //               ElevatedButton(
-// //                   onPressed: (){
-// //                     // _signIn();
-// //                   },
-// //                   style: ElevatedButton.styleFrom(
-// //                     backgroundColor: AppColors.primary,
-// //                     padding: EdgeInsets.symmetric(
-// //                         horizontal: 40.w,
-// //                         vertical: 15.h),
-// //                     shape: RoundedRectangleBorder(
-// //                       borderRadius: BorderRadius.circular(
-// //                           50.sp),
-// //                     ),
-// //                     minimumSize: Size(MediaQuery.of(context).size.width, 50.sp),
-// //                   ),
-// //                   child: Text(
-// //                     'Start',
-// //                     style: TextStyle(
-// //                         fontSize: 16.sp, color: AppColors.primaryText),
-// //                   ),
-// //                 ),
-// //             ],
-// //           ),
-// //         );
-// //       },
-// //     );
-
-// //     // _searchController.clear();
-// //     _predictions = [];
-// //   } else {
-// //     debugPrint("Error fetching place details: ${placeDetails.errorMessage}");
-// //   }
-// // }
-
-// // Future<void> getRoutesAndDrawPolylines(
-// //     LatLng origin, LatLng destination) async {
-// //   try {
-// //     // Request directions
-// //     final directionsResponse = await _directions.directions(
-// //       Location(lat: origin.latitude, lng: origin.longitude),
-// //       Location(lat: destination.latitude, lng: destination.longitude),
-// //       alternatives: true, // Get alternative routes
-// //     );
-
-// //     if (directionsResponse.isOkay) {
-// //       // Clear previous polylines
-// //       _polylines.clear();
-
-// //       // Initialize PolylinePoints for decoding polyline strings
-// //       PolylinePoints polylinePoints = PolylinePoints();
-
-// //       // Find the shortest route by comparing distances
-// //       int shortestRouteIndex = 0;
-// //       double shortestDistance = double.infinity;
-
-// //       for (int i = 0; i < directionsResponse.routes.length; i++) {
-// //         final route = directionsResponse.routes[i];
-// //         final distance = route.legs[0].distance.value;
-
-// //         if (distance < shortestDistance) {
-// //           shortestDistance = distance.toDouble();
-// //           shortestRouteIndex = i;
-// //         }
-// //       }
-
-// //       // Draw polylines for all routes
-// //       for (int i = 0; i < directionsResponse.routes.length; i++) {
-// //         final route = directionsResponse.routes[i];
-// //         final encodedPolyline = route.overviewPolyline.points;
-
-// //         // Decode polyline
-// //         final decodedPoints = polylinePoints.decodePolyline(encodedPolyline);
-// //         final polylineLatLng = decodedPoints
-// //             .map((point) => LatLng(point.latitude, point.longitude))
-// //             .toList();
-
-// //         // Determine polyline color
-// //         final color = (i == shortestRouteIndex) ? Colors.blue : Colors.grey;
-
-// //         // Add polyline to the map
-// //         final polylineId = PolylineId(route.summary);
-// //         _polylines.add(maps.Polyline(
-// //           polylineId: polylineId,
-// //           points: polylineLatLng,
-// //           color: color,
-// //           width: 5,
-// //           onTap: () => _onRouteSelected(route, polylineId),
-// //         ));
-// //       }
-
-// //       // Set shortest route as selected initially
-// //       _onRouteSelected(
-// //         directionsResponse.routes[shortestRouteIndex],
-// //         PolylineId(directionsResponse.routes[shortestRouteIndex].summary),
-// //       );
-// //     } else {
-// //       print('Error fetching directions: ${directionsResponse.errorMessage}');
-// //     }
-// //   } catch (e) {
-// //     print('Error fetching directions: $e');
-// //   }
-// // }
-
-// // void _onRouteSelected(DirectionsRoute route, PolylineId polylineId) {
-// //   // Highlight selected polyline
-// //   setState(() {
-// //     _polylines = _polylines.map((polyline) {
-// //       if (polyline.polylineId == polylineId) {
-// //         return polyline.copyWith(colorParam: Colors.blue);
-// //       }
-// //       return polyline.copyWith(colorParam: Colors.grey);
-// //     }).toSet();
-
-// //     // Update distance and duration
-// //     final legs = route.legs[0];
-// //     distanceText = legs.distance.text;
-// //     durationText = legs.duration.text;
-// //   });
-
-// //   print("Selected Route: ${route.summary}");
-// // }
-
-
-//   // Future<void> getRoutesAndDrawPolylines(
-//   //     LatLng origin, LatLng destination) async {
-//   //   try {
-//   //     // Request directions
-//   //     final directionsResponse = await _directions.directions(
-//   //       Location(lat: origin.latitude, lng: origin.longitude),
-//   //       Location(lat: destination.latitude, lng: destination.longitude),
-//   //       alternatives: true, // Set to true to get alternative routes
-//   //     );
-
-//   //     if (directionsResponse.isOkay) {
-//   //       // Clear previous polylines
-//   //       _polylines.clear();
-
-//   //        // Initialize PolylinePoints for decoding polyline strings
-//   //     PolylinePoints polylinePoints = PolylinePoints();
-
-//   //        // Loop through all the routes and draw polylines
-//   //     for (var route in directionsResponse.routes) {
-//   //       final encodedPolyline = route.overviewPolyline.points;
-
-//   //       // Decode the polyline string into a list of LatLng points
-//   //       final decodedPoints = polylinePoints.decodePolyline(encodedPolyline);
-
-//   //       final polylineLatLng = decodedPoints.map((point) {
-//   //         return LatLng(point.latitude, point.longitude);
-//   //       }).toList();
-
-//   //       // Add polyline to the map
-//   //       final polylineId = PolylineId(route.summary); // Use summary as the ID
-//   //       _polylines.add(maps.Polyline(
-//   //         polylineId: polylineId,
-//   //         points: polylineLatLng,
-//   //         color: Colors.blue, // Choose color for the polyline
-//   //         width: 5, // Set the width of the polyline
-//   //       ));
-//   //     }
-//   //     } else {
-//   //       print('Error fetching directions: ${directionsResponse.errorMessage}');
-//   //     }
-//   //   } catch (e) {
-//   //     print('Error fetching directions: $e');
-//   //   }
-//   // }
-
-
-// Dynamic Polylines Backup
-
-// import 'dart:async';
-// import 'dart:convert';
-// import 'package:connectivity_plus/connectivity_plus.dart';
-// import 'package:flutter/material.dart';
-// import 'package:flutter/services.dart';
 // import 'package:flutter_polyline_points/flutter_polyline_points.dart';
-// import 'package:flutter_screenutil/flutter_screenutil.dart';
-// import 'package:geolocator/geolocator.dart';
-// import 'package:google_maps_flutter/google_maps_flutter.dart';
 // import 'package:google_maps_webservice/directions.dart' as gmaps;
-// import 'package:google_maps_webservice/places.dart';
-// import 'package:http/http.dart' as http;
-// import 'package:maps/screens/no_internet.dart';
-// import 'package:maps/util/app_colors.dart';
 // import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 // import 'package:location/location.dart' as loc;
 
@@ -1114,7 +151,7 @@
 
 //   void _onReachedDestination() {
 //     // Stop location tracking if needed
-//     _locationSubscription?.cancel();
+//     _locationSubscription.cancel();
 
 //     // Display a notification or dialog
 //     showDialog(
@@ -1157,15 +194,6 @@
 //     // debugPrint("myDebug Remaining Distance ${distanceInMeters / 1000} KM");
 //     return distanceInMeters / 1000; // Convert to kilometers
 //   }
-//   // bool shouldRecalculateRoute(LatLng currentPosition, LatLng destination) {
-//   //   const double deviationThresholdInMiles =
-//   //       0.0621371; // Example threshold in miles (0.1 km = 0.0621371 miles)
-//   //   double distanceToRouteInMiles =
-//   //       _calculateDistance(currentPosition, _initialPosition) *
-//   //           0.621371; // Convert km to miles
-
-//   //   return distanceToRouteInMiles > deviationThresholdInMiles;
-//   // }
 
 //   Future<void> _initializeUserLocation() async {
 //     try {
@@ -1192,34 +220,26 @@
 // // Function to update the user's location marker
 //   void _updateUserLocation(loc.LocationData locationData) {
 //     final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
+
 //     setState(() {
-//       _initialPosition = userLatLng;
+//       _initialPosition = userLatLng; // Keep track of current position
+
+//       // Retrieve the user's heading/bearing (direction they are facing)
+//       final heading = locationData.heading ??
+//           0.0; // Default to 0.0 if heading is unavailable
+
 //       _startingMarker = Marker(
 //         markerId: const MarkerId('userLocation'),
 //         position: userLatLng,
 //         icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
 //         infoWindow: const InfoWindow(title: "Your Current Location"),
+//         rotation: heading, // Rotate marker based on the user's heading
 //       );
-//       isLoading = false;
 //     });
-//   }
-//   // void _updateUserLocation(loc.LocationData locationData) {
-//   //   final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
 
-//   //   // GeoLocator
-//   //   setState(() {
-//   //     _initialPosition = userLatLng;
-//   //     _startingMarker = Marker(
-//   //       icon: BitmapDescriptor.defaultMarker,
-//   //       // icon: myCustomIcon,
-//   //       markerId: const MarkerId('userLocation'),
-//   //       position: userLatLng,
-//   //       infoWindow: const InfoWindow(title: "Your Current Location"),
-//   //     );
-//   //     isLoading = false; // Stop loading
-//   //     debugPrint("myDebug _updateUserLocation triggered");
-//   //   });
-//   // }
+//     // Optionally trigger route recalculation (if needed frequently)
+//     // _fetchAndDrawRoutes(currentPosition: userLatLng);
+//   }
 
 //   Future<void> _moveToUserLocation() async {
 //     try {
@@ -1228,6 +248,7 @@
 //         return;
 //       }
 //       final locationData = await _location.getLocation();
+//       _updateUserLocation(locationData);
 //       final userLatLng =
 //           LatLng(locationData.latitude!, locationData.longitude!);
 //       mapController?.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
@@ -1342,28 +363,35 @@
 //     }
 //   }
 
-// // Function to fetch and draw routes
-//   Future<void> _fetchAndDrawRoutes() async {
+//   Future<void> _fetchAndDrawRoutes({LatLng? currentPosition}) async {
 //     try {
-//       if (_initialPosition == null || _destinationPosition == null) {
-//         throw Exception("Initial or destination position is not set.");
+//       // Use the current position if provided, otherwise fallback to the initial position
+//       final origin = currentPosition ?? _initialPosition;
+
+//       if (origin == null || _destinationPosition == null) {
+//         throw Exception("Current or destination position is not set.");
 //       }
 
 //       final directionsUrl =
-//           'https://maps.googleapis.com/maps/api/directions/json?origin=${_initialPosition.latitude},${_initialPosition.longitude}&destination=${_destinationPosition.latitude},${_destinationPosition.longitude}&mode=$_selectedMode&alternatives=true&key=$myApiKey';
+//           'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${_destinationPosition.latitude},${_destinationPosition.longitude}&mode=$_selectedMode&alternatives=true&key=$myApiKey';
+//       debugPrint("myDebug Fetching directionsUrl $directionsUrl");
 //       final response = await http.get(Uri.parse(directionsUrl));
-//       debugPrint("myDebug _fetchAndDrawRoutes() inilat${_initialPosition.latitude} , inilat${_initialPosition.longitude} destination=${_destinationPosition.latitude},${_destinationPosition.longitude}");
+//       debugPrint("Fetching routes from $origin to $_destinationPosition");
 
 //       if (response.statusCode == 200) {
 //         final data = json.decode(response.body);
+
 //         if (data['routes'] != null && data['routes'].isNotEmpty) {
+//           debugPrint('myDebug fetched Routes response ${data}');
 //           final route = data['routes'][0];
 //           final legs = route['legs'][0];
+
 //           setState(() {
 //             distanceText = legs['distance']['text'];
 //             durationText = legs['duration']['text'];
-//             _polylines.clear(); // Clear previous polylines
+//             _polylines.clear(); // Clear old polylines
 //           });
+
 //           await _drawPolylines(data['routes']);
 //         } else {
 //           debugPrint("No routes found for the selected mode.");
@@ -1382,174 +410,102 @@
 
 //   Future<void> _drawPolylines(List<dynamic> routes) async {
 //     try {
-//       debugPrint("myDebug _DrawPolylines Called");
 //       final PolylinePoints polylinePoints = PolylinePoints();
 //       final newPolylines = <Polyline>{};
 //       double shortestDistance = double.infinity;
-//       List<LatLng> shortestRoutePoints = [];
+//       String selectedRouteId = "selectedRoute"; // Default selected route ID
 
+//       String routeDistanceText = "";
+//       String routeDurationText = "";
+
+//       // Loop through all routes to decode polyline and add them to newPolylines
 //       for (var route in routes) {
 //         final points =
 //             polylinePoints.decodePolyline(route['overview_polyline']['points']);
 //         final polylineLatLng = points
 //             .map((point) => LatLng(point.latitude, point.longitude))
 //             .toList();
-//         final routeDistance = route['legs'][0]['distance']['value'];
 
-//         // Track the shortest route
+//         final routeDistance = route['legs'][0]['distance']['value'];
 //         if (routeDistance < shortestDistance) {
 //           shortestDistance = routeDistance.toDouble();
-//           shortestRoutePoints = polylineLatLng;
+//           selectedRouteId = route['summary'];
+//           routeDistanceText = route['legs'][0]['distance']['text'];
+//           routeDurationText = route['legs'][0]['duration']['text'];
 //         }
 
-//         // Add polyline for the route
-//         final polylineId = PolylineId(route['summary']);
 //         newPolylines.add(Polyline(
-//           polylineId: polylineId,
+//           polylineId: PolylineId(route['summary']),
 //           points: polylineLatLng,
-//           color: Colors.grey,
+//           color: Colors.grey, // Default color for all routes
 //           width: 5,
+//           consumeTapEvents: true,
+//           onTap: () {
+//             _onRouteSelected(
+//                 route['summary'], routes); // Only pass the summary (ID)
+//           },
 //         ));
 //       }
 
-//       // Highlight the shortest route
+//       // Update the selected route with primary color
+//       final selectedRoute =
+//           routes.firstWhere((route) => route['summary'] == selectedRouteId);
+//       final selectedRoutePoints = polylinePoints
+//           .decodePolyline(selectedRoute['overview_polyline']['points'])
+//           .map((point) => LatLng(point.latitude, point.longitude))
+//           .toList();
+
 //       newPolylines.add(Polyline(
-//         polylineId: const PolylineId("shortestRoute"),
-//         points: shortestRoutePoints,
-//         color: AppColors.primary,
+//         polylineId: PolylineId(selectedRouteId),
+//         points: selectedRoutePoints,
+//         color: AppColors.primary, // Highlight selected route with primary color
 //         width: 8,
 //       ));
 
-//       // Update state with new polylines
 //       setState(() {
 //         _polylines = newPolylines;
+//         distanceText = routeDistanceText;
+//         durationText = routeDurationText;
 //       });
+
+//       debugPrint(
+//           "Default selected route distance: $routeDistanceText and duration: $routeDurationText");
 //     } catch (e) {
 //       debugPrint('Error drawing polylines: $e');
 //     }
 //   }
 
-//   // Future<void> getRoutesAndDrawPolylines() async {
-//   //   try {
-//   //     final _travelMode = getTravelMode(_selectedMode);
-
-//   //     debugPrint('Fetching routes for mode: $_selectedMode');
-//   //     setState(() {
-//   //       _polylines.clear(); // Clear previous polylines before fetching new ones
-//   //     });
-//   //     debugPrint('myDebug Fetching polylines cleard');
-
-//   //     final directionsResponse = await _directions.directions(
-//   //       gmaps.Location(
-//   //         lat: _initialPosition.latitude,
-//   //         lng: _initialPosition.longitude,
-//   //       ),
-//   //       gmaps.Location(
-//   //         lat: _destinationPosition.latitude,
-//   //         lng: _destinationPosition.longitude,
-//   //       ),
-//   //       travelMode: _travelMode,
-//   //       alternatives: true,
-//   //     );
-
-//   //     if (directionsResponse.isOkay) {
-//   //       final PolylinePoints polylinePoints = PolylinePoints();
-//   //       double shortestDistance = double.infinity;
-//   //       gmaps.Route? shortestRoute;
-
-//   //       final newPolylines = <maps.Polyline>{};
-
-//   //       for (gmaps.Route route in directionsResponse.routes) {
-//   //         final encodedPolyline = route.overviewPolyline.points;
-//   //         final decodedPoints = polylinePoints.decodePolyline(encodedPolyline);
-//   //         final polylineLatLng = decodedPoints
-//   //             .map((point) => LatLng(point.latitude, point.longitude))
-//   //             .toList();
-
-//   //         final routeDistance = route.legs[0].distance.value;
-
-//   //         // Find the shortest route
-//   //         if (routeDistance < shortestDistance) {
-//   //           shortestDistance = routeDistance.toDouble();
-//   //           shortestRoute = route;
-//   //           debugPrint("myDebugPoly routeDistance: $routeDistance");
-//   //           debugPrint(
-//   //               "myDebugPoly shortestRoute: ${shortestRoute.legs[0].distance.value}");
-//   //         }
-
-//   //         // Create a unique polyline for each route
-//   //         final polylineId = PolylineId(route.summary);
-//   //         newPolylines.add(maps.Polyline(
-//   //           polylineId: polylineId,
-//   //           points: polylineLatLng,
-//   //           color: Colors.grey,
-//   //           width: 5,
-//   //           consumeTapEvents: true,
-//   //           onTap: () {
-//   //             debugPrint("myDebugPoly _onRouteSelected tapped");
-//   //             _onRouteSelected(route, polylineId);
-//   //           },
-//   //         ));
-//   //       }
-
-//   //       // Highlight the shortest route
-//   //       if (shortestRoute != null) {
-//   //         final shortestPolylineId = PolylineId(shortestRoute.summary);
-//   //         newPolylines.add(
-//   //           newPolylines
-//   //               .firstWhere(
-//   //                   (polyline) => polyline.polylineId == shortestPolylineId)
-//   //               .copyWith(colorParam: AppColors.primary, widthParam: 8),
-//   //         );
-//   //         debugPrint(
-//   //             "myDebugPoly shortestRoute yellow polylineCreated: $shortestPolylineId");
-//   //       }
-
-//   //       // Update state with new polylines
-//   //       setState(() {
-//   //         _polylines = newPolylines;
-//   //       });
-//   //       debugPrint(
-//   //           "myDebugPoly number of polylines in list ${_polylines.length}");
-//   //     } else {
-//   //       debugPrint(
-//   //           'Error fetching directions: ${directionsResponse.errorMessage}');
-//   //     }
-//   //   } catch (e) {
-//   //     debugPrint('Error fetching routes: $e');
-//   //   }
-//   // }
-
-//   void _onRouteSelected(gmaps.Route selectedRoute, PolylineId polylineId) {
-//     debugPrint(
-//         "myDebugPoly _onRouteSelected ${selectedRoute} polylineID: $polylineId");
-//     final updatedPolylines = _polylines.map((polyline) {
-//       if (polyline.polylineId == polylineId) {
-//         return polyline.copyWith(colorParam: AppColors.primary, widthParam: 8);
-//       } else {
-//         return polyline.copyWith(colorParam: Colors.grey, widthParam: 5);
-//       }
-//     }).toSet();
-
-//     // Check if the route contains tolls
-//     final List<dynamic>? warnings = selectedRoute.warnings;
-//     bool containsTolls = warnings?.any(
-//             (warning) => warning.toString().toLowerCase().contains('toll')) ??
-//         false;
-
+//   void _onRouteSelected(String selectedRouteId, List<dynamic> routes) {
 //     setState(() {
-//       _polylines = updatedPolylines;
-//       final selectedRouteDetails =
-//           selectedRoute.legs[0]; // First leg of the route
-//       distanceText = selectedRouteDetails.distance.text; // Distance as a string
-//       durationText = selectedRouteDetails.duration.text; // Duration as a string
-//       tollInfoText = containsTolls ? "This Route Contain tools" : "Doesn't";
+//       // Update each polyline's color and width based on selection
+//       _polylines = _polylines.map((polyline) {
+//         return Polyline(
+//           polylineId: polyline.polylineId,
+//           points: polyline.points,
+//           color: polyline.polylineId.value == selectedRouteId
+//               ? AppColors.primary
+//               : Colors.grey,
+//           width: polyline.polylineId.value == selectedRouteId ? 8 : 5,
+//           consumeTapEvents: true,
+//           onTap: () {
+//             if (polyline.polylineId.value != selectedRouteId) {
+//               _onRouteSelected(polyline.polylineId.value, routes);
+//             }
+//           },
+//         );
+//       }).toSet();
+
+//       // Find the selected route to update distance and duration
+//       final selectedRoute = _polylines.firstWhere(
+//           (polyline) => polyline.polylineId.value == selectedRouteId);
+//       final selectedRouteDetails = routes.firstWhere(
+//           (route) => route['summary'] == selectedRouteId)['legs'][0];
+//       distanceText = selectedRouteDetails['distance']['text'];
+//       durationText = selectedRouteDetails['duration']['text'];
+
+//       debugPrint(
+//           "Selected route distance: $distanceText, duration: $durationText");
 //     });
-
-//     selectedRoutePoints =
-//         _decodePolyline(selectedRoute.overviewPolyline.points);
-
-//     debugPrint('Route selected: ${selectedRoute.summary}');
 //   }
 
 //   List<LatLng> _decodePolyline(String encoded) {
@@ -1563,6 +519,14 @@
 
 //   void _startLiveNavigation() {
 //     _moveToUserLocation();
+
+//     _location.changeSettings(
+//       accuracy: loc.LocationAccuracy
+//           .high, // Set the accuracy to high for better precision
+//       distanceFilter:
+//           10, // Minimum distance (in meters) before an update is triggered
+//     );
+
 //     _locationSubscription = loc.Location.instance.onLocationChanged.listen(
 //       (locationData) async {
 //         if (locationData.latitude == null || locationData.longitude == null) {
@@ -1578,114 +542,41 @@
 //           return;
 //         }
 
-//         // Check for route deviation and recalculate if needed
+//         // Check for route deviation or user movement
 //         if (shouldRecalculateRoute(currentLocation, _destinationPosition)) {
-//           debugPrint('User deviated from the route. Recalculating...');
-//           _fetchAndDrawRoutes(); // Recalculate route and redraw polylines
+//           debugPrint('Recalculating route...');
+//           await _fetchAndDrawRoutes(currentPosition: currentLocation);
 //         }
 
+//         // Update user location marker and adjust polyline
 //         _updateUserLocation(locationData);
+
+//         // Ensure polyline starts from the current location
+//         setState(() {
+//           _polylines = _polylines.map((polyline) {
+//             if (polyline.polylineId.value == "shortestRoute") {
+//               return Polyline(
+//                 polylineId: polyline.polylineId,
+//                 points: [currentLocation, ...polyline.points.sublist(1)],
+//                 color: AppColors.primary,
+//                 width: 8,
+//               );
+//             }
+//             return polyline;
+//           }).toSet();
+//         });
 //       },
 //     );
 //   }
-//   // void _startLiveNavigation() {
-//   //   _locationSubscription = loc.Location.instance.onLocationChanged.listen(
-//   //     (locationData) async {
-//   //       if (locationData.latitude == null || locationData.longitude == null) {
-//   //         return;
-//   //       }
 
-//   //       final currentLocation =
-//   //           LatLng(locationData.latitude!, locationData.longitude!);
-
-//   //       // Check if the destination is reached
-//   //       if (hasReachedDestination(currentLocation, _destinationPosition)) {
-//   //         _onReachedDestination();
-//   //         return;
-//   //       }
-
-//   //       // Check for route deviation and recalculate if needed
-//   //       if (shouldRecalculateRoute(currentLocation, _destinationPosition)) {
-//   //         debugPrint('User deviated from the route. Recalculating...');
-//   //         _fetchAndDrawRoutes(); // Recalculate route and redraw polylines
-//   //       }
-
-//   //       // Update distance and duration
-//   //       _updateDistanceAndDuration(currentLocation);
-//   //       final remainingDistance = _calculateDistance(currentLocation, _destinationPosition);
-//   //       final remainingTime =
-
-//   //       // Update user location marker
-//   //       _updateUserLocation(locationData);
-//   //       // _updateUserLocation(locationData, myCustomIcon);
-//   //     },
-//   //   );
-//   // }
-
-//   // void _updateDistanceAndDuration(LatLng currentLocation) {
-//   //   double remainingDistance = 0.0;
-//   //   Duration totalRemainingTime = Duration.zero;
-
-//   //   // Calculate remaining distance and time
-//   //   for (int i = 0; i < selectedRoutePoints.length - 1; i++) {
-//   //     LatLng start = (i == 0) ? currentLocation : selectedRoutePoints[i];
-//   //     LatLng end = selectedRoutePoints[i + 1];
-
-//   //     double segmentDistance = _calculateDistance(start, end);
-//   //     remainingDistance += segmentDistance;
-
-//   //     // Assuming a constant speed (e.g., 40 km/h)
-//   //     double speed = 40.0; // km/h
-//   //     totalRemainingTime += Duration(
-//   //       minutes: ((segmentDistance / speed) * 60).toInt(),
-//   //     );
-//   //   }
-
+//   // void _updateMarkerPosition(LatLng position) {
 //   //   setState(() {
-//   //     distanceText = "Rem: ${remainingDistance.toStringAsFixed(2)} km";
-//   //     durationText = "Rem ${totalRemainingTime.inMinutes} min";
+//   //     _startingMarker = Marker(
+//   //       markerId: const MarkerId('userLocation'),
+//   //       position: position,
+//   //       icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
+//   //     );
 //   //   });
-//   // }
-
-//   // double _calculateDistance(LatLng start, LatLng end) {
-//   //   double distanceInMeters = Geolocator.distanceBetween(
-//   //     start.latitude,
-//   //     start.longitude,
-//   //     end.latitude,
-//   //     end.longitude,
-//   //   );
-//   //   debugPrint("myDebug Remaining Distance ${distanceInMeters / 1000} KM");
-//   //   return distanceInMeters / 1000; // Convert to kilometers
-//   // }
-
-//   // double _calculateTime(LatLng start, LatLng end) {
-//   //   double distanceInMeters = Geolocator.distanceBetween(
-//   //     start.latitude,
-//   //     start.longitude,
-//   //     end.latitude,
-//   //     end.longitude,
-//   //   );
-//   //   debugPrint("myDebug Remaining Distance ${distanceInMeters / 1000} KM");
-//   //   return distanceInMeters / 1000; // Convert to kilometers
-//   // }
-
-//   // void _updateDuration(int currentIndex, List<LatLng> routePoints) {
-//   //   if (currentIndex < routePoints.length - 1) {
-//   //     LatLng currentPoint = routePoints[currentIndex];
-//   //     LatLng nextPoint = routePoints[currentIndex + 1];
-
-//   //     // Calculate time taken to travel between two points
-//   //     double distance = _calculateDistance(currentPoint, nextPoint);
-//   //     double speed = 40.0; // Speed in km/h (can be adjusted)
-
-//   //     double timeInHours = distance / speed;
-//   //     Duration timeDuration = Duration(
-//   //         hours: timeInHours.toInt(), minutes: (timeInHours * 60).toInt() % 60);
-
-//   //     setState(() {
-//   //       durationText = "Remaining Time: ${timeDuration.inMinutes} min";
-//   //     });
-//   //   }
 //   // }
 
 //   gmaps.TravelMode getTravelMode(String mode) {
@@ -1917,7 +808,6 @@
 //       distanceText = ''; // Clear distance text
 //       durationText = ''; // Clear duration text
 //       tollInfoText = ''; // Clear toll info text
-//       _selectedMode = ''; // Reset travel mode if needed
 //       _locationSubscription.cancel();
 //       // Any other variables you want to reset
 //     });
@@ -2050,8 +940,8 @@
 //                 Padding(
 //                   padding: EdgeInsets.only(top: 3.h),
 //                   child: Text(
-//                     distanceText.toString(),
-//                     // convertKmToMiles(distanceText.toString()),
+//                     // distanceText.toString(),
+//                     convertKmToMiles(distanceText.toString()),
 //                     style: TextStyle(
 //                         fontSize: 14.sp, color: AppColors.primaryGrey),
 //                     textAlign: TextAlign.center,
@@ -2082,10 +972,10 @@
 //               onPressed: () {
 //                 if (!isJourneyStarted) {
 //                   // _startNavigation(selectedRoutePoints);
-//                   _startLiveNavigation();
 //                   setState(() {
 //                     isJourneyStarted = true;
 //                   });
+//                   _startLiveNavigation();
 //                 } else {
 //                   _resetState();
 //                 }

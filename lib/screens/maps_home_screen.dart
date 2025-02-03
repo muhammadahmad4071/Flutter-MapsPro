@@ -26,20 +26,27 @@ class MapsHomeScreen extends StatefulWidget {
 
 class _MapsHomeScreenState extends State<MapsHomeScreen> {
   static const myApiKey = "AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk";
-  TextEditingController _searchController = TextEditingController();
+  final TextEditingController _searchController = TextEditingController();
 
   final GoogleMapsPlaces _places = GoogleMapsPlaces(apiKey: myApiKey);
   final gmaps.GoogleMapsDirections _directions =
       gmaps.GoogleMapsDirections(apiKey: myApiKey);
   GoogleMapController? mapController;
   late LatLng _initialPosition;
-  late LatLng _destinationPosition;
+  String finalDestinationName = "N/A";
+  String finalDestinationDescription = "N/A";
   Marker? _startingMarker;
   BitmapDescriptor? userLocationMarker;
   Marker? _destinationMarker;
+
+  List<LatLng> _destinationPositions = []; // List of multiple destinations
+  List<Marker> _destinationMarkers = []; // Markers for all destinations
+  List<Map<String, dynamic>> _stopsInfo =
+      []; // Store name, distance, time for each stop
+
   Set<maps.Polyline> _polylines = {};
   List<Prediction> _predictions = [];
-  late Prediction _prediction;
+  // late Prediction _prediction;
   String? distanceText;
   String? durationText;
   String? tollInfoText;
@@ -51,7 +58,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   bool hasLocationPermission = false;
   bool isInternetConnected = true;
   bool isJourneyStarted = false;
-  String destinationText = "N/A";
+  bool isMoreStopsAdded = false;
+  // bool isDestinationSelected = false;
+  // String destinationText = "N/A";
   // Position? userCurrentPosition;
   // Connectivity
   final Connectivity _connectivity = Connectivity();
@@ -137,12 +146,12 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-  bool hasReachedDestination(LatLng currentLocation, LatLng destination,
+  bool hasReachedDestination(LatLng currentLocation, LatLng? destination,
       {double thresholdInMeters = 50.0}) {
     final double distance = Geolocator.distanceBetween(
       currentLocation.latitude,
       currentLocation.longitude,
-      destination.latitude,
+      destination!.latitude,
       destination.longitude,
     );
 
@@ -151,7 +160,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   void _onReachedDestination() {
     // Stop location tracking if needed
-    _locationSubscription?.cancel();
+    _locationSubscription.cancel();
 
     // Display a notification or dialog
     showDialog(
@@ -175,13 +184,14 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
 // Function to check if route recalculation is needed
-  bool shouldRecalculateRoute(LatLng currentPosition, LatLng destination) {
+  bool shouldRecalculateRoute(LatLng currentPosition, LatLng? destination) {
     const double deviationThresholdInMiles = 0.0621371; // 0.1 km in miles
     double distanceToRouteInMiles =
         _calculateDistance(currentPosition, _initialPosition) * 0.621371;
     debugPrint(
         "myDebug Recalculating Distance Function ${distanceToRouteInMiles > deviationThresholdInMiles}");
     return distanceToRouteInMiles > deviationThresholdInMiles;
+    // return true;
   }
 
   double _calculateDistance(LatLng start, LatLng end) {
@@ -194,15 +204,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     // debugPrint("myDebug Remaining Distance ${distanceInMeters / 1000} KM");
     return distanceInMeters / 1000; // Convert to kilometers
   }
-  // bool shouldRecalculateRoute(LatLng currentPosition, LatLng destination) {
-  //   const double deviationThresholdInMiles =
-  //       0.0621371; // Example threshold in miles (0.1 km = 0.0621371 miles)
-  //   double distanceToRouteInMiles =
-  //       _calculateDistance(currentPosition, _initialPosition) *
-  //           0.621371; // Convert km to miles
-
-  //   return distanceToRouteInMiles > deviationThresholdInMiles;
-  // }
 
   Future<void> _initializeUserLocation() async {
     try {
@@ -249,24 +250,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     // Optionally trigger route recalculation (if needed frequently)
     // _fetchAndDrawRoutes(currentPosition: userLatLng);
   }
-
-  // void _updateUserLocation(loc.LocationData locationData) {
-  //   final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
-
-  //   // GeoLocator
-  //   setState(() {
-  //     _initialPosition = userLatLng;
-  //     _startingMarker = Marker(
-  //       icon: BitmapDescriptor.defaultMarker,
-  //       // icon: myCustomIcon,
-  //       markerId: const MarkerId('userLocation'),
-  //       position: userLatLng,
-  //       infoWindow: const InfoWindow(title: "Your Current Location"),
-  //     );
-  //     isLoading = false; // Stop loading
-  //     debugPrint("myDebug _updateUserLocation triggered");
-  //   });
-  // }
 
   Future<void> _moveToUserLocation() async {
     try {
@@ -369,20 +352,17 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
     if (placeDetails.isOkay) {
       final location = placeDetails.result.geometry!.location;
-      _destinationPosition = LatLng(location.lat, location.lng);
+      LatLng newDestination = LatLng(location.lat, location.lng);
 
       setState(() {
-        _prediction = prediction;
-        _destinationMarker = Marker(
-          markerId: const MarkerId('cityLocation'),
-          position: _destinationPosition,
-          infoWindow: InfoWindow(title: prediction.description),
-        );
+        finalDestinationName = prediction.structuredFormatting!.mainText;
+        finalDestinationDescription = prediction.description ?? "N/A";
+        _destinationPositions.add(newDestination);
         showBottomSheet = true;
       });
 
       mapController!
-          .animateCamera(CameraUpdate.newLatLngZoom(_destinationPosition, 14));
+          .animateCamera(CameraUpdate.newLatLngZoom(newDestination, 14));
 
       await _fetchAndDrawRoutes();
     } else {
@@ -392,36 +372,63 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   Future<void> _fetchAndDrawRoutes({LatLng? currentPosition}) async {
     try {
-      // Use the current position if provided, otherwise fallback to the initial position
       final origin = currentPosition ?? _initialPosition;
-
-      if (origin == null || _destinationPosition == null) {
+      if (origin == null || _destinationPositions.isEmpty) {
         throw Exception("Current or destination position is not set.");
       }
 
+      String waypoints = _destinationPositions
+          .sublist(0, _destinationPositions.length - 1) // All except last
+          .map((latLng) => '${latLng.latitude},${latLng.longitude}')
+          .join('|');
+
+      final finalDestination = _destinationPositions.last;
+
       final directionsUrl =
-          'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${_destinationPosition.latitude},${_destinationPosition.longitude}&mode=$_selectedMode&alternatives=true&key=$myApiKey';
-      debugPrint("myDebug Fetching directionsUrl $directionsUrl");
+          'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${finalDestination.latitude},${finalDestination.longitude}&waypoints=$waypoints&mode=$_selectedMode&alternatives=true&key=$myApiKey';
+
+      debugPrint("Fetching routes: $directionsUrl");
       final response = await http.get(Uri.parse(directionsUrl));
-      debugPrint("Fetching routes from $origin to $_destinationPosition");
 
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
 
         if (data['routes'] != null && data['routes'].isNotEmpty) {
-          debugPrint('myDebug fetched Routes response ${data}');
+          debugPrint('Fetched Routes response: ${data}');
           final route = data['routes'][0];
-          final legs = route['legs'][0];
+          final legs = route['legs'];
+
+          double totalDistance = 0;
+          double totalDuration = 0;
+          for (var leg in legs) {
+            totalDistance += leg['distance']['value'];
+            totalDuration += leg['duration']['value'];
+          }
 
           setState(() {
-            distanceText = legs['distance']['text'];
-            durationText = legs['duration']['text'];
-            _polylines.clear(); // Clear old polylines
+            distanceText = "${(totalDistance / 1000).toStringAsFixed(1)} km";
+            durationText = "${(totalDuration / 60).toStringAsFixed(0)} min";
+            _polylines.clear();
+
+            // Update destination markers
+            _destinationMarkers.clear();
+            for (int i = 0; i < _destinationPositions.length; i++) {
+              _destinationMarkers.add(
+                Marker(
+                  markerId: MarkerId('destination_$i'),
+                  position: _destinationPositions[i],
+                  infoWindow: InfoWindow(
+                    title: 'Stop ${i + 1}',
+                  ),
+                ),
+              );
+            }
           });
 
           await _drawPolylines(data['routes']);
+          _updateStopsInfo(route);
         } else {
-          debugPrint("No routes found for the selected mode.");
+          debugPrint("No routes found.");
         }
       } else {
         throw Exception('Failed to load directions: ${response.statusCode}');
@@ -435,58 +442,78 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-// // Function to fetch and draw routes
-//   Future<void> _fetchAndDrawRoutes() async {
-//     if (isInternetConnected) {
-//       try {
-//         if (_initialPosition == null || _destinationPosition == null) {
-//           throw Exception("Initial or destination position is not set.");
-//         }
+  // _updateStopsInfo(data['routes'][0]);
+  // ! update Stops info
+  Future<void> _updateStopsInfo(dynamic route) async {
+    List<dynamic> legs = route['legs'];
+    List<Map<String, dynamic>> stops = [];
 
-//         // Fetch directions with alternatives
-//         final directionsUrl =
-//             'https://maps.googleapis.com/maps/api/directions/json?origin=${_initialPosition.latitude},${_initialPosition.longitude}&destination=${_destinationPosition.latitude},${_destinationPosition.longitude}&mode=${getTravelMode(_selectedMode).toString().split('.').last}&alternatives=true&key=$myApiKey';
-//         debugPrint('myDebug _fetchAndDraw $directionsUrl');
-//         final response = await http.get(Uri.parse(directionsUrl));
+    for (int i = 0; i < legs.length; i++) {
+      String placeName = await _getPlaceName(_destinationPositions[i]);
+      stops.add({
+        'stopNo': "Stop ${i + 1}",
+        'name': placeName,
+        'distance': legs[i]['distance']['text'],
+        'duration': legs[i]['duration']['text'],
+        'location': _destinationPositions[i]
+      });
+    }
 
-//         if (response.statusCode == 200) {
-//           final data = json.decode(response.body);
-//           if (data['routes'] != null && data['routes'].isNotEmpty) {
-//             setState(() {
-//               distanceText = data['routes'][0]['legs'][0]['distance']['text'];
-//               durationText = data['routes'][0]['legs'][0]['duration']['text'];
-//               debugPrint(
-//                   'myDebug rem distance $distanceText duration $durationText');
-//               _polylines.clear();
-//             });
+    setState(() {
+      _stopsInfo = stops;
+      isMoreStopsAdded = checkStopsStatus();
+      debugPrint(
+          "myDebug current stop list size ${_stopsInfo.length} isMoreStops Value $isMoreStopsAdded");
+    });
+  }
 
-//             await _drawPolylines(data['routes']);
-//           } else {
-//             debugPrint("No routes found.");
-//           }
-//         } else {
-//           throw Exception('Failed to load directions: ${response.statusCode}');
-//         }
-//       } catch (e) {
-//         debugPrint('Error fetching directions: $e');
-//         setState(() {
-//           distanceText = 'N/A';
-//           durationText = 'N/A';
-//         });
-//       }
-//     }
-//   }
+  bool checkStopsStatus() {
+    return (_stopsInfo.length > 1) ? true : false;
+  }
+
+  Future<String> _getPlaceName(LatLng position) async {
+    final url =
+        'https://maps.googleapis.com/maps/api/geocode/json?latlng=${position.latitude},${position.longitude}&key=$myApiKey';
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK' && data['results'].isNotEmpty) {
+          debugPrint("myDebug fetching stops name ${data['results'][0]}");
+
+          // Extract short name from address components
+          for (var component in data['results'][0]['address_components']) {
+            if (component['types'].contains('locality')) {
+              return component[
+                  'short_name']; // Short name (e.g., "NYC" instead of "New York City")
+            }
+            if (component['types'].contains('sublocality')) {
+              return component['short_name']; // More specific short name
+            }
+            if (component['types'].contains('administrative_area_level_1')) {
+              return component['short_name']; // State/province short name
+            }
+          }
+
+          // Fallback: If no short name found, return formatted address
+          return data['results'][0]['formatted_address'];
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching place name: $e");
+    }
+
+    return "Unknown Location"; // Default if API fails
+  }
+
   Future<void> _drawPolylines(List<dynamic> routes) async {
     try {
       final PolylinePoints polylinePoints = PolylinePoints();
       final newPolylines = <Polyline>{};
-      double shortestDistance = double.infinity;
-      String selectedRouteId = "selectedRoute"; // Default selected route ID
 
-      String routeDistanceText = "";
-      String routeDurationText = "";
+      String defaultRouteId = routes.isNotEmpty ? routes.first['summary'] : '';
 
-      // Loop through all routes to decode polyline and add them to newPolylines
       for (var route in routes) {
         final points =
             polylinePoints.decodePolyline(route['overview_polyline']['points']);
@@ -494,53 +521,42 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             .map((point) => LatLng(point.latitude, point.longitude))
             .toList();
 
-        final routeDistance = route['legs'][0]['distance']['value'];
-        if (routeDistance < shortestDistance) {
-          shortestDistance = routeDistance.toDouble();
-          selectedRouteId = route['summary'];
-          routeDistanceText = route['legs'][0]['distance']['text'];
-          routeDurationText = route['legs'][0]['duration']['text'];
-        }
-
         newPolylines.add(Polyline(
           polylineId: PolylineId(route['summary']),
           points: polylineLatLng,
-          color: Colors.grey, // Default color for all routes
-          width: 5,
+          color: route['summary'] == defaultRouteId
+              ? AppColors.primary
+              : Colors.grey,
+          width: route['summary'] == defaultRouteId ? 8 : 5,
           consumeTapEvents: true,
           onTap: () {
-            _onRouteSelected(
-                route['summary'], routes); // Only pass the summary (ID)
+            _onRouteSelected(route['summary'], routes);
           },
         ));
       }
 
-      // Update the selected route with primary color
-      final selectedRoute =
-          routes.firstWhere((route) => route['summary'] == selectedRouteId);
-      final selectedRoutePoints = polylinePoints
-          .decodePolyline(selectedRoute['overview_polyline']['points'])
-          .map((point) => LatLng(point.latitude, point.longitude))
-          .toList();
-
-      newPolylines.add(Polyline(
-        polylineId: PolylineId(selectedRouteId),
-        points: selectedRoutePoints,
-        color: AppColors.primary, // Highlight selected route with primary color
-        width: 8,
-      ));
-
       setState(() {
         _polylines = newPolylines;
-        distanceText = routeDistanceText;
-        durationText = routeDurationText;
       });
 
-      debugPrint(
-          "Default selected route distance: $routeDistanceText and duration: $routeDurationText");
+      // Automatically select the default route
+      if (routes.isNotEmpty) {
+        _onRouteSelected(defaultRouteId, routes);
+      }
     } catch (e) {
       debugPrint('Error drawing polylines: $e');
     }
+  }
+
+  void _removeStop(Map<String, dynamic> stop) {
+    setState(() {
+      _destinationPositions.remove(stop['location']);
+      _destinationMarkers
+          .removeWhere((marker) => marker.position == stop['location']);
+      _stopsInfo.remove(stop);
+    });
+
+    _fetchAndDrawRoutes(); // Recalculate route after removal
   }
 
   void _onRouteSelected(String selectedRouteId, List<dynamic> routes) {
@@ -576,124 +592,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     });
   }
 
-//Second
-// Future<void> _drawPolylines(List<dynamic> routes) async {
-//   try {
-//     final PolylinePoints polylinePoints = PolylinePoints();
-//     final newPolylines = <Polyline>{};
-//     double shortestDistance = double.infinity;
-//     List<LatLng> shortestRoutePoints = [];
-
-//     for (var route in routes) {
-//       final points =
-//           polylinePoints.decodePolyline(route['overview_polyline']['points']);
-//       final polylineLatLng = points
-//           .map((point) => LatLng(point.latitude, point.longitude))
-//           .toList();
-//       final routeDistance = route['legs'][0]['distance']['value'];
-
-//       // Track the shortest route
-//       if (routeDistance < shortestDistance) {
-//         shortestDistance = routeDistance.toDouble();
-//         shortestRoutePoints = polylineLatLng;
-//       }
-
-//       // Add polyline for the route
-//       final polylineId = PolylineId(route['summary']);
-//       newPolylines.add(Polyline(
-//         polylineId: polylineId,
-//         points: polylineLatLng,
-//         color: Colors.grey,
-//         width: 5,
-//       ));
-//     }
-
-//     // Highlight the shortest route with dynamic user location
-//     newPolylines.add(Polyline(
-//       polylineId: const PolylineId("shortestRoute"),
-//       points: [if (_initialPosition != null) _initialPosition, ...shortestRoutePoints],
-//       color: AppColors.primary,
-//       width: 8,
-//     ));
-
-//     setState(() {
-//       _polylines = newPolylines;
-//     });
-//   } catch (e) {
-//     debugPrint('Error drawing polylines: $e');
-//   }
-// }
-
-//First
-  // Future<void> _drawPolylines(List<dynamic> routes) async {
-  //   try {
-  //     debugPrint("myDebug Drawing Polylines...");
-  //     final newPolylines = <Polyline>{};
-  //     double shortestDistance = double.infinity;
-  //     List<LatLng> shortestRoutePoints = [];
-
-  //     for (var i = 0; i < routes.length; i++) {
-  //       final points =
-  //           _decodePolyline(routes[i]['overview_polyline']['points']);
-  //       final routeDistance = routes[i]['legs'][0]['distance']['value'];
-
-  //       // Track the shortest route
-  //       if (routeDistance < shortestDistance) {
-  //         shortestDistance = routeDistance.toDouble();
-  //         shortestRoutePoints = points;
-  //       }
-
-  //       // Add alternative route polyline
-  //       final polylineId = PolylineId('route_$i');
-  //       newPolylines.add(Polyline(
-  //         polylineId: polylineId,
-  //         points: points,
-  //         color: Colors.grey,
-  //         width: 5,
-  //         consumeTapEvents: true,
-  //         onTap: () {
-  //           _onRouteSelected(routes[i], polylineId);
-  //         },
-  //       ));
-  //     }
-
-  //     // Highlight the shortest route
-  //     newPolylines.add(Polyline(
-  //       polylineId: const PolylineId("shortestRoute"),
-  //       points: shortestRoutePoints,
-  //       color: AppColors.primary,
-  //       width: 8,
-  //     ));
-
-  //     setState(() {
-  //       _polylines = newPolylines;
-  //       selectedRoutePoints = shortestRoutePoints;
-  //     });
-  //   } catch (e) {
-  //     debugPrint('Error drawing polylines: $e');
-  //   }
-  // }
-
-  // void _onRouteSelected(dynamic selectedRoute, PolylineId polylineId) {
-  //   debugPrint("myDebug Route selected: $polylineId");
-  //   final updatedPolylines = _polylines.map((polyline) {
-  //     if (polyline.polylineId == polylineId) {
-  //       return polyline.copyWith(colorParam: AppColors.primary, widthParam: 8);
-  //     } else {
-  //       return polyline.copyWith(colorParam: Colors.grey, widthParam: 5);
-  //     }
-  //   }).toSet();
-
-  //   final legs = selectedRoute['legs'][0];
-  //   setState(() {
-  //     _polylines = updatedPolylines;
-  //     distanceText = legs['distance']['text'];
-  //     durationText = legs['duration']['text'];
-  //     selectedRoutePoints =
-  //         _decodePolyline(selectedRoute['overview_polyline']['points']);
-  //   });
-  // }
-
   List<LatLng> _decodePolyline(String encoded) {
     PolylinePoints polylinePoints = PolylinePoints();
     List<LatLng> polylineLatLng = polylinePoints
@@ -723,15 +621,15 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             LatLng(locationData.latitude!, locationData.longitude!);
 
         // Check if the destination is reached
-        if (hasReachedDestination(currentLocation, _destinationPosition)) {
+        if (hasReachedDestination(currentLocation, getLastDestination())) {
           _onReachedDestination();
           return;
         }
 
         // Check for route deviation or user movement
-        if (shouldRecalculateRoute(currentLocation, _destinationPosition)) {
+        if (shouldRecalculateRoute(currentLocation, getLastDestination())) {
           debugPrint('Recalculating route...');
-          await _fetchAndDrawRoutes(currentPosition: currentLocation);
+          await _fetchAndDrawRoutes();
         }
 
         // Update user location marker and adjust polyline
@@ -755,48 +653,22 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     );
   }
 
-  // void _startLiveNavigation() {
-  //   _moveToUserLocation();
-
-  //   _locationSubscription = loc.Location.instance.onLocationChanged.listen(
-  //     (locationData) async {
-  //       if (locationData.latitude == null || locationData.longitude == null) {
-  //         return;
-  //       }
-
-  //       final currentLocation =
-  //           LatLng(locationData.latitude!, locationData.longitude!);
-
-  //       // Check if the destination is reached
-  //       if (hasReachedDestination(currentLocation, _destinationPosition)) {
-  //         debugPrint(
-  //             "myDebug has Reached Destination current $currentLocation, destination $_destinationPosition");
-  //         _onReachedDestination();
-  //         return;
-  //       }
-
-  //       // Recalculate route if deviation is significant
-  //       // if (shouldRecalculateRoute(currentLocation, selectedRoutePoints)) {
-  //       if (shouldRecalculateRoute(currentLocation, _destinationPosition)) {
-  //         debugPrint("myDebug Route deviation detected. Recalculating...");
-  //         _fetchAndDrawRoutes();
-  //       }
-
-  //       // Update marker position and redraw polyline
-  //       _updateMarkerPosition(currentLocation);
-  //     },
-  //   );
-  // }
-
-  void _updateMarkerPosition(LatLng position) {
-    setState(() {
-      _startingMarker = Marker(
-        markerId: const MarkerId('userLocation'),
-        position: position,
-        icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
-      );
-    });
+  LatLng? getLastDestination() {
+    if (_destinationPositions.isNotEmpty) {
+      return _destinationPositions.last; // Returns the last destination
+    }
+    return null; // No destinations left
   }
+
+  // void _updateMarkerPosition(LatLng position) {
+  //   setState(() {
+  //     _startingMarker = Marker(
+  //       markerId: const MarkerId('userLocation'),
+  //       position: position,
+  //       icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
+  //     );
+  //   });
+  // }
 
   gmaps.TravelMode getTravelMode(String mode) {
     switch (mode.toLowerCase()) {
@@ -832,192 +704,262 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
+  // Widget _buildBottomContainer() {
+  //   return Container(
+  //     padding: EdgeInsets.all(10),
+  //     decoration: BoxDecoration(
+  //       color: Colors.white,
+  //       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  //       boxShadow: [BoxShadow(blurRadius: 10, color: Colors.grey)],
+  //     ),
+  //     child: Column(
+  //       mainAxisSize: MainAxisSize.min,
+  //       children: [
+  //         Text(
+  //           "Trip Summary",
+  //           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+  //         ),
+  //         Divider(),
+  //         ...stopDetails.map((stop) => ListTile(
+  //               title: Text(stop['name']),
+  //               subtitle: Text(
+  //                   "Distance: ${stop['distance']} | Time: ${stop['duration']}"),
+  //               leading: Icon(Icons.location_on, color: Colors.blue),
+  //             )),
+  //       ],
+  //     ),
+  //   );
+  // }
+
+  Set<Marker> _getMarkers() {
+    return {
+      if (_startingMarker != null) _startingMarker!,
+      ..._destinationMarkers,
+    };
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!isInternetConnected) {
       return NoInternetWidget();
     }
-    return SafeArea(
-      child: Scaffold(
-        resizeToAvoidBottomInset: false,
-        body: isLoading
-            ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 20.sp),
-                    Text(
-                      "Loading Maps...",
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.primaryText,
-                        fontSize: 14.sp,
-                      ),
-                    ),
-                  ],
+
+    Future<bool> _onWillPop(BuildContext context) async {
+      return await showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text("Exit App"),
+              content: const Text("Are you sure you want to exit the app?"),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false), // No
+                  child: const Text("No"),
                 ),
-              )
-            : hasLocationPermission
-                ? Stack(
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true), // Yes
+                  child: const Text("Yes"),
+                ),
+              ],
+            ),
+          ) ??
+          false; // Return false if dialog is dismissed
+    }
+
+    return SafeArea(
+      child: PopScope(
+        canPop: false,
+        onPopInvoked: (bool didPop) async {
+          if (didPop) {
+            return;
+          }
+          // final NavigatorState navigator = Navigator.of(context);
+          final bool? shouldPop = await _onWillPop(context);
+          if (shouldPop ?? false) {
+            // navigator.pop();
+          }
+        },
+        child: Scaffold(
+          resizeToAvoidBottomInset: false,
+          body: isLoading
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      GestureDetector(
-                        onTap: () {
-                          // Unfocus to dismiss the keyboard
-                          FocusScope.of(context).unfocus();
-                        },
-                        child: GoogleMap(
-                          onMapCreated: _onMapCreated,
-                          compassEnabled: false,
-                          mapType: MapType.normal,
-                          initialCameraPosition: CameraPosition(
-                            target: _initialPosition,
-                            zoom: 14,
-                          ),
-                          markers: {
-                            if (_startingMarker != null) _startingMarker!,
-                            if (_destinationMarker != null) _destinationMarker!,
-                          },
-                          polylines: _polylines,
-                          trafficEnabled: true,
+                      CircularProgressIndicator(),
+                      SizedBox(height: 20.sp),
+                      Text(
+                        "Loading Maps...",
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.primaryText,
+                          fontSize: 14.sp,
                         ),
                       ),
-                      IntrinsicHeight(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(
-                              vertical: 24, horizontal: 20),
-                          // color: Colors.amber,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (isJourneyStarted)
-                                _startPositionCard("From: ", "Your Location"),
-                              if (isJourneyStarted)
-                                Padding(
-                                  padding: EdgeInsets.only(left: 18.w),
-                                  child: Icon(
-                                    Icons.keyboard_double_arrow_down_rounded,
-                                    color: AppColors.primaryGrey,
-                                    size: 15.sp,
-                                  ),
-                                ),
-                              if (isJourneyStarted)
-                                _stopPositionCard(
-                                    "To: ", _searchController.text),
-                              SizedBox(
-                                height: 10.h,
-                              ),
-                              if (!isJourneyStarted) searchTextFieldCard(),
-                              SizedBox(
-                                height: 10.h,
-                              ),
-                              Align(
-                                alignment: Alignment
-                                    .centerRight, // Align to the right side
-                                child: CircleAvatar(
-                                  backgroundColor: Colors.white,
-                                  radius: 22.sp,
-                                  child: CircleAvatar(
-                                    backgroundColor: AppColors.secondary,
-                                    child: Center(
-                                      child: IconButton(
-                                        iconSize: 22.sp,
-                                        color: AppColors.primaryGrey,
-                                        onPressed: _moveToUserLocation,
-                                        icon: Icon(Icons.my_location_outlined),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      _predictions.isNotEmpty
-                          ? Container(
-                              margin: EdgeInsets.symmetric(
-                                  horizontal: 30.w, vertical: 90.h),
-                              decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.only(
-                                      bottomLeft: Radius.circular(20.r),
-                                      bottomRight: Radius.circular(20.r))),
-                              child: ListView.builder(
-                                shrinkWrap: true,
-                                itemCount: _predictions.length,
-                                itemBuilder: (context, index) {
-                                  final prediction = _predictions[index];
-                                  return ListTile(
-                                    leading: Icon(
-                                      Icons.location_on,
-                                      color: AppColors.primary,
-                                    ),
-                                    title: Text(prediction.description ?? ''),
-                                    onTap: () {
-                                      _searchController.text = prediction
-                                              .structuredFormatting?.mainText ??
-                                          _searchController.text;
-                                      _selectCity(prediction);
-                                    },
-                                  );
-                                },
-                              ),
-                            )
-                          : SizedBox(),
                     ],
-                  )
-                : Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                  ),
+                )
+              : hasLocationPermission
+                  ? Stack(
                       children: [
-                        Icon(
-                          Icons.location_off,
-                          size: 80.sp,
-                          color: Colors.grey,
-                        ),
-                        SizedBox(height: 20.sp),
-                        Text(
-                          "Please allow location permissions\nto use the app",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 16.sp,
-                            color: Colors.grey,
+                        GestureDetector(
+                          onTap: () {
+                            // Unfocus to dismiss the keyboard
+                            FocusScope.of(context).unfocus();
+                          },
+                          child: GoogleMap(
+                            onMapCreated: _onMapCreated,
+                            compassEnabled: false,
+                            mapType: MapType.normal,
+                            initialCameraPosition: CameraPosition(
+                              target: _initialPosition,
+                              zoom: 14,
+                            ),
+                            markers: _getMarkers(),
+                            // markers: {
+                            //   if (_startingMarker != null) _startingMarker!,
+                            //   if (_destinationMarker != null) _destinationMarker!,
+                            // },
+                            polylines: _polylines,
+                            trafficEnabled: true,
                           ),
                         ),
-                        SizedBox(height: 20.sp),
-                        ElevatedButton(
-                          onPressed: () async {
-                            await Geolocator.openAppSettings();
-                            // await Geolocator.openLocationSettings();
-                            // _checkLocationPermission();
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 40.w, vertical: 15.h),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(50.sp),
+                        IntrinsicHeight(
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(
+                                vertical: 24, horizontal: 20),
+                            // color: Colors.amber,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (!isJourneyStarted) searchTextFieldCard(),
+                                SizedBox(
+                                  height: 10.h,
+                                ),
+                                if (showBottomSheet)
+                                  _startPositionCard("From: ", "Your Location"),
+                                if (showBottomSheet) _stopPositionCard("To: "),
+                                SizedBox(
+                                  height: 10.h,
+                                ),
+                                Align(
+                                  alignment: Alignment
+                                      .centerRight, // Align to the right side
+                                  child: GestureDetector(
+                                    onTap: (){
+                                      _moveToUserLocation();
+                                    },
+                                    child: Image.asset('assets/ic_current_location.png', height: 45.h,),
+                                  ))
+                                //   CircleAvatar(
+                                //     backgroundColor: Colors.white,
+                                //     radius: 22.sp,
+                                //     child: Center(
+                                //       child: CircleAvatar(
+                                //         backgroundColor: AppColors.secondary,
+                                //         child: IconButton(
+                                //           iconSize: 22.sp,
+                                //           color: AppColors.primaryGrey,
+                                //           onPressed: _moveToUserLocation,
+                                //           icon:
+                                //               Icon(Icons.my_location_outlined),
+                                //         ),
+                                //       ),
+                                //     ),
+                                //   ),
+                                // ),
+                              ],
                             ),
                           ),
-                          child: Text(
-                            'Grant Permissions',
-                            style: TextStyle(
-                                fontSize: 16.sp, color: AppColors.primaryText),
-                          ),
                         ),
+                        _predictions.isNotEmpty
+                            ? Container(
+                                margin: EdgeInsets.symmetric(
+                                    horizontal: 30.w, vertical: 90.h),
+                                decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.only(
+                                        bottomLeft: Radius.circular(20.r),
+                                        bottomRight: Radius.circular(20.r))),
+                                child: ListView.builder(
+                                  shrinkWrap: true,
+                                  itemCount: _predictions.length,
+                                  itemBuilder: (context, index) {
+                                    final prediction = _predictions[index];
+                                    return ListTile(
+                                      leading: Icon(
+                                        Icons.location_on,
+                                        color: AppColors.primary,
+                                      ),
+                                      title: Text(prediction.description ?? ''),
+                                      onTap: () {
+                                        // _searchController.text = prediction
+                                        //         .structuredFormatting?.mainText ??
+                                        //     _searchController.text;
+                                        _searchController.text = '';
+                                        _selectCity(prediction);
+                                      },
+                                    );
+                                  },
+                                ),
+                              )
+                            : SizedBox(),
                       ],
+                    )
+                  : Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.location_off,
+                            size: 80.sp,
+                            color: Colors.grey,
+                          ),
+                          SizedBox(height: 20.sp),
+                          Text(
+                            "Please allow location permissions\nto use the app",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 16.sp,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          SizedBox(height: 20.sp),
+                          ElevatedButton(
+                            onPressed: () async {
+                              await Geolocator.openAppSettings();
+                              // await Geolocator.openLocationSettings();
+                              // _checkLocationPermission();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 40.w, vertical: 15.h),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(50.sp),
+                              ),
+                            ),
+                            child: Text(
+                              'Grant Permissions',
+                              style: TextStyle(
+                                  fontSize: 16.sp,
+                                  color: AppColors.primaryText),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-        bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
+          // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
+          bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
+          // bottomSheet: _buildStopsList(),
+        ),
       ),
     );
   }
 
   void _resetState() {
     setState(() {
-      isJourneyStarted = false;
+      // isDestinationSelected = false;
       showBottomSheet = false;
       _polylines.clear(); // Clear all polylines
       _destinationMarker = null;
@@ -1027,11 +969,17 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       distanceText = ''; // Clear distance text
       durationText = ''; // Clear duration text
       tollInfoText = ''; // Clear toll info text
-      _selectedMode = ''; // Reset travel mode if needed
-      _locationSubscription.cancel();
+      _destinationPositions.clear(); // List of multiple destinations
+      _destinationMarkers.clear(); // Markers for all destinations
+      _stopsInfo.clear();
+      if (isJourneyStarted) {
+        _locationSubscription.cancel();
+      }
+      isJourneyStarted = false;
       // Any other variables you want to reset
     });
-    _initializeUserLocation();
+    // _initializeUserLocation();
+    _moveToUserLocation();
   }
 
   Widget bottomSheetWidget() {
@@ -1082,6 +1030,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                     ],
                   ),
             Divider(color: AppColors.textField),
+
             // Row(
             //   crossAxisAlignment: CrossAxisAlignment.center,
             //   children: [
@@ -1137,55 +1086,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             //     ),
             //   ],
             // ),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Icon(Icons.access_time_filled,
-                    size: 22.sp, color: AppColors.primary),
-                SizedBox(width: 5.w),
-                Padding(
-                  padding: EdgeInsets.only(top: 3.h),
-                  child: Text(
-                    durationText ?? "N/A",
-                    style: TextStyle(
-                        fontSize: 14.sp, color: AppColors.primaryGrey),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-                SizedBox(
-                  width: 10.w,
-                ),
-                Icon(Icons.location_pin, color: AppColors.primary),
-                SizedBox(width: 5.w),
-                Padding(
-                  padding: EdgeInsets.only(top: 3.h),
-                  child: Text(
-                    // distanceText.toString(),
-                    convertKmToMiles(distanceText.toString()),
-                    style: TextStyle(
-                        fontSize: 14.sp, color: AppColors.primaryGrey),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ],
-            ),
-            Divider(color: AppColors.textField),
-            Text(
-              _prediction.structuredFormatting?.mainText ?? "N/A",
-              style: TextStyle(
-                fontSize: 20.sp,
-                color: AppColors.primaryText,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            SizedBox(height: 10.h),
-            Text(
-              '${_prediction.description}',
-              style: TextStyle(
-                fontSize: 14.sp,
-                color: AppColors.dividerGrey,
-              ),
-            ),
+            checkStopsStatus() ? showMultipleStops() : showSingleStop(),
             SizedBox(height: 20),
             // Start Journet
             ElevatedButton(
@@ -1224,6 +1125,205 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             SizedBox(height: 20.h),
             // Transportation mode selection
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget multipleStopCardDesign(Map<String, dynamic> stop) {
+    bool isLastStop = _stopsInfo.last == stop;
+    return SizedBox(
+      width: MediaQuery.of(context).size.width,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 40.w,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.start,
+              children: [
+                Icon(Icons.location_pin, color: Colors.red),
+                // onPressed: () => _removeStop(stop),
+
+                if (!isLastStop) ...[
+                  Icon(
+                    Icons.keyboard_double_arrow_down_rounded,
+                    color: AppColors.primaryGrey,
+                    size: 15.sp,
+                  ),
+                  Icon(
+                    Icons.keyboard_double_arrow_down_rounded,
+                    color: AppColors.primaryGrey,
+                    size: 15.sp,
+                  ),
+                ],
+                // Image.asset(
+                //   'assets/destination_line.png',
+                //   height: 70.h,
+                // )
+              ],
+            ),
+          ),
+          SizedBox(
+            width: 250.w,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  stop['stopNo'],
+                  style: TextStyle(
+                      fontSize: 16.sp,
+                      color: AppColors.primaryText,
+                      fontWeight: FontWeight.w500),
+                  // textAlign: TextAlign.center,
+                ),
+                SizedBox(
+                  height: 5.h,
+                ),
+                Text(
+                  stop['name'],
+                  style: TextStyle(
+                      fontSize: 14.sp,
+                      color: AppColors.primaryText,
+                      fontWeight: FontWeight.w400),
+                  // textAlign: TextAlign.center,
+                ),
+                SizedBox(
+                  height: 5.h,
+                ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(Icons.access_time_filled,
+                        size: 22.sp, color: AppColors.primary),
+                    SizedBox(width: 5.w),
+                    Padding(
+                      padding: EdgeInsets.only(top: 3.h),
+                      child: Text(
+                        stop['duration'],
+                        style: TextStyle(
+                            fontSize: 14.sp, color: AppColors.primaryGrey),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                    SizedBox(
+                      width: 10.w,
+                    ),
+                    Icon(Icons.location_pin, color: AppColors.primary),
+                    SizedBox(width: 5.w),
+                    Padding(
+                      padding: EdgeInsets.only(top: 3.h),
+                      child: Text(
+                        // distanceText.toString(),
+                        convertKmToMiles(stop['distance']),
+                        style: TextStyle(
+                            fontSize: 14.sp, color: AppColors.primaryGrey),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ],
+                ),
+                Divider(color: AppColors.textField),
+              ],
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: IconButton(
+              icon: Icon(Icons.remove_circle, color: Colors.red),
+              onPressed: () => _removeStop(stop),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget showSingleStop() {
+    return IntrinsicHeight(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            (_stopsInfo.isNotEmpty)
+                ? _stopsInfo.last['name']
+                : finalDestinationName,
+            style: TextStyle(
+              fontSize: 20.sp,
+              color: AppColors.primaryText,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          SizedBox(height: 10.h),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Icon(Icons.access_time_filled,
+                  size: 22.sp, color: AppColors.primary),
+              SizedBox(width: 5.w),
+              Padding(
+                padding: EdgeInsets.only(top: 3.h),
+                child: Text(
+                  durationText ?? "N/A",
+                  style:
+                      TextStyle(fontSize: 14.sp, color: AppColors.primaryGrey),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              SizedBox(
+                width: 10.w,
+              ),
+              Icon(Icons.location_pin, color: AppColors.primary),
+              SizedBox(width: 5.w),
+              Padding(
+                padding: EdgeInsets.only(top: 3.h),
+                child: Text(
+                  // distanceText.toString(),
+                  convertKmToMiles(distanceText.toString()),
+                  style:
+                      TextStyle(fontSize: 14.sp, color: AppColors.primaryGrey),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 10.h),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  finalDestinationDescription,
+                  style: TextStyle(
+                    fontSize: 14.sp,
+                    color: AppColors.dividerGrey,
+                  ),
+                ),
+              ),
+              Align(
+                alignment: Alignment.bottomCenter,
+                child: IconButton(
+                  icon: Icon(Icons.remove_circle, color: Colors.red),
+                  onPressed: () {
+                    _resetState();
+                  },
+                  // onPressed: () => _removeStop(stop),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget showMultipleStops() {
+    return Container(
+      height: 130.h,
+      child: SingleChildScrollView(
+        child: Column(
+          children: _stopsInfo.map((stop) {
+            return multipleStopCardDesign(stop);
+          }).toList(),
         ),
       ),
     );
@@ -1271,52 +1371,98 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(50),
       ),
-      child: TextField(
-        controller: _searchController,
-        onChanged: _searchCities,
-        style: const TextStyle(color: Colors.black),
-        cursorColor: AppColors.primary,
-        decoration: const InputDecoration(
-          labelText: "Search",
-          prefixIcon: Icon(Icons.search, color: Colors.grey),
-          border: InputBorder.none,
-        ),
-        keyboardType: TextInputType.streetAddress,
-      ),
+      child: showBottomSheet
+          ? TextField(
+              controller: _searchController,
+              onChanged: _searchCities,
+              style: TextStyle(color: Colors.black),
+              cursorColor: AppColors.primary,
+              decoration: const InputDecoration(
+                labelText: "Add Stop",
+                prefixIcon: Icon(Icons.search, color: Colors.grey),
+                border: InputBorder.none,
+              ),
+              keyboardType: TextInputType.streetAddress,
+            )
+          : TextField(
+              controller: _searchController,
+              onChanged: _searchCities,
+              style: TextStyle(color: Colors.black),
+              cursorColor: AppColors.primary,
+              decoration: const InputDecoration(
+                labelText: "Search",
+                prefixIcon: Icon(Icons.search, color: Colors.grey),
+                border: InputBorder.none,
+              ),
+              keyboardType: TextInputType.streetAddress,
+            ),
     );
   }
 
-  Widget _stopPositionCard(String title, String? _selectedDestination) {
-    return Container(
-      width: double.infinity,
-      height: 45.h,
-      // margin: EdgeInsets.symmetric(horizontal: 20.w),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(50),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 12.h),
-        child: Row(
-          children: [
-            Icon(
-              Icons.location_pin,
-              color: Colors.red,
-            ),
-            SizedBox(
-              width: 5.w,
-            ),
-            Text(
-              title,
-              style: TextStyle(color: AppColors.dividerGrey, fontSize: 12.sp),
-            ),
-            Text(
-              _selectedDestination.toString(),
-              style: TextStyle(color: AppColors.primaryGrey, fontSize: 14.sp),
-            )
-          ],
+  Widget _stopPositionCard(String title) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: EdgeInsets.only(left: 18.w),
+          child: Icon(
+            Icons.keyboard_double_arrow_down_rounded,
+            color: AppColors.primaryGrey,
+            size: 15.sp,
+          ),
         ),
-      ),
+        Container(
+          width: double.infinity,
+          height: 45.h,
+          // margin: EdgeInsets.symmetric(horizontal: 20.w),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(50),
+          ),
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 12.h),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.location_pin,
+                  color: Colors.red,
+                ),
+                SizedBox(
+                  width: 5.w,
+                ),
+                Text(
+                  title,
+                  style:
+                      TextStyle(color: AppColors.dividerGrey, fontSize: 12.sp),
+                ),
+                Expanded(
+                  child: (_stopsInfo.isNotEmpty)
+                      ? Text(
+                          _stopsInfo.last['name'],
+                          maxLines: 1,
+                          overflow: TextOverflow
+                              .ellipsis, // Adds "..." when text overflows
+                          style: TextStyle(
+                            color: AppColors.primaryGrey,
+                            fontSize: 14.sp,
+                          ),
+                        )
+                      : Text(
+                          finalDestinationName,
+                          maxLines: 1,
+                          overflow: TextOverflow
+                              .ellipsis, // Adds "..." when text overflows
+                          style: TextStyle(
+                            color: AppColors.primaryGrey,
+                            fontSize: 14.sp,
+                          ),
+                        ),
+                )
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 

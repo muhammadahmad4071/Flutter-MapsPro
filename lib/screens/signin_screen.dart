@@ -102,9 +102,9 @@ class _SignInScreenState extends State<SignInScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text.trim(),
       );
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Sign-In Successful!')),
-      );
+      // ScaffoldMessenger.of(context).showSnackBar(
+      //   const SnackBar(content: Text('Sign-In Successful!')),
+      // );
       Navigator.pushReplacement(
           context, MaterialPageRoute(builder: (context) => MapsHomeScreen()));
     } catch (e) {

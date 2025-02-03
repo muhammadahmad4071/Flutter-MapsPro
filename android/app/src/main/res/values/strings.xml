@@ -1,6 +1,7 @@
 <resources>
-<string name="google_maps_key">AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk
- </string>
+<string name="google_maps_key">AIzaSyBsVw09Zl_Xby65X7ed8Xs2ov8aAhaWiFk</string>
+ <string name="app_name">Value Maps</string>
+
 <!-- <string name="google_maps_key">AIzaSyBM6orh06wXY5XLR_Tdzk37oPAUK1wPIGI
  </string> -->
 </resources>
