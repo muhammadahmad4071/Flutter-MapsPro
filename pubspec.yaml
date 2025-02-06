@@ -47,6 +47,7 @@ dependencies:
   connectivity_plus: ^6.1.2
   # permission_handler: ^10.2.0
   location: ^7.0.1
+  flutter_spinkit: ^5.2.1
   # firebase_core: ^2.32.0
 
 dev_dependencies:

@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_webservice/places.dart';
@@ -29,15 +30,15 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   final TextEditingController _searchController = TextEditingController();
 
   final GoogleMapsPlaces _places = GoogleMapsPlaces(apiKey: myApiKey);
-  final gmaps.GoogleMapsDirections _directions =
-      gmaps.GoogleMapsDirections(apiKey: myApiKey);
+  // final gmaps.GoogleMapsDirections _directions =
+  //     gmaps.GoogleMapsDirections(apiKey: myApiKey);
   GoogleMapController? mapController;
   late LatLng _initialPosition;
   String finalDestinationName = "N/A";
   String finalDestinationDescription = "N/A";
   Marker? _startingMarker;
   BitmapDescriptor? userLocationMarker;
-  Marker? _destinationMarker;
+  // Marker? _destinationMarker;
 
   List<LatLng> _destinationPositions = []; // List of multiple destinations
   List<Marker> _destinationMarkers = []; // Markers for all destinations
@@ -71,6 +72,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   late StreamSubscription<loc.LocationData> _locationSubscription;
   List<LatLng> selectedRoutePoints = [];
 
+  Timer? _permissionCheckTimer;
+
   @override
   void initState() {
     super.initState();
@@ -78,7 +81,24 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     initConnectivity();
     _connectivitySubscription =
         _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
+    // WidgetsBinding.instance.addObserver(this);
   }
+
+  @override
+  void dispose() {
+    // Don't forget to cancel the subscription when the widget is disposed
+    _permissionCheckTimer?.cancel();
+    _connectivitySubscription.cancel();
+    // WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+//   @override
+// void didChangeAppLifecycleState(AppLifecycleState state) {
+//   if (state == AppLifecycleState.resumed) {
+//     _initializeApp(); // Recheck permissions when app comes back from background
+//   }
+// }
 
   Future<void> initConnectivity() async {
     List<ConnectivityResult> result;
@@ -105,14 +125,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
           result.contains(ConnectivityResult.mobile);
     });
 
-    print('Connectivity changed: $_connectionStatus bool $isInternetConnected');
-  }
-
-  @override
-  void dispose() {
-    // Don't forget to cancel the subscription when the widget is disposed
-    _connectivitySubscription.cancel();
-    super.dispose();
+    debugPrint(
+        'Connectivity changed: $_connectionStatus bool $isInternetConnected');
   }
 
   void _onMapCreated(GoogleMapController controller) {
@@ -120,30 +134,87 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   Future<void> _initializeApp() async {
-    bool permissionGranted = await _checkLocationPermission();
-    userLocationMarker = await getCustomIcon();
-    if (permissionGranted) {
-      await _initializeUserLocation();
-    } else {
-      setState(() => isLoading = false); // Stop loading if no permission
+    try {
+      bool permissionGranted = await _checkLocationPermission();
+      userLocationMarker = await getCustomIcon();
+      if (permissionGranted) {
+        await _initializeUserLocation();
+      } else {
+        setState(() => isLoading = false); // Stop loading if no permission
+      }
+      _startPermissionCheck();
+      debugPrint("myDebug isLoading _initializeApp() $isLoading");
+    } catch (e) {
+      debugPrint("Error initializing App: $e");
+      setState(() => isLoading = false);
     }
-    debugPrint("myDebug isLoading _initializeApp() $isLoading");
+  }
+
+  Future<void> _initializeUserLocation() async {
+    try {
+      bool isServiceEnabled = await _location.serviceEnabled();
+      if (!isServiceEnabled) {
+        isServiceEnabled = await _location.requestService();
+        if (!isServiceEnabled) {
+          throw Exception("Location services are disabled.");
+        }
+      }
+      final locationData = await _location.getLocation();
+
+      countryCode = await getCountryCode(
+          LatLng(locationData.latitude!, locationData.longitude!));
+      _updateUserLocation(locationData);
+
+      setState(() => isLoading = false); // byme
+    } catch (e) {
+      debugPrint("Error initializing user location: $e");
+      setState(() => isLoading = false);
+    }
   }
 
   Future<bool> _checkLocationPermission() async {
-    // location
-    loc.PermissionStatus permissionStatus = await _location.requestPermission();
-    if (permissionStatus == loc.PermissionStatus.granted) {
-      setState(() => hasLocationPermission = true);
-      debugPrint("myDebugLoc isLoading _checkLocationPermission() $isLoading");
-      return true;
-    } else {
+    try {
+      loc.PermissionStatus permissionStatus =
+          await _location.requestPermission();
+
+      if (permissionStatus == loc.PermissionStatus.granted) {
+        final locationData = await _location.getLocation();
+        if (locationData.latitude == null || locationData.longitude == null) {
+          throw Exception("Failed to fetch location after permission grant.");
+        }
+
+        setState(() {
+          _initialPosition =
+              LatLng(locationData.latitude!, locationData.longitude!);
+          hasLocationPermission = true;
+        });
+
+        return true;
+      } else {
+        setState(() {
+          hasLocationPermission = false;
+        });
+        return false;
+      }
+    } catch (e) {
+      debugPrint("Error checking location permission: $e");
       setState(() {
         hasLocationPermission = false;
-        // isLoading = false; // byme
       });
       return false;
     }
+  }
+
+  void _startPermissionCheck() {
+    _permissionCheckTimer?.cancel(); // Cancel previous timer if exists
+    _permissionCheckTimer = Timer.periodic(Duration(seconds: 5), (timer) async {
+      bool permissionGranted = await _checkLocationPermission();
+      if (permissionGranted != hasLocationPermission) {
+        setState(() {
+          hasLocationPermission = permissionGranted;
+        });
+      }
+    });
   }
 
   bool hasReachedDestination(LatLng currentLocation, LatLng? destination,
@@ -159,7 +230,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   void _onReachedDestination() {
-    // Stop location tracking if needed
     _locationSubscription.cancel();
 
     // Display a notification or dialog
@@ -191,7 +261,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     debugPrint(
         "myDebug Recalculating Distance Function ${distanceToRouteInMiles > deviationThresholdInMiles}");
     return distanceToRouteInMiles > deviationThresholdInMiles;
-    // return true;
   }
 
   double _calculateDistance(LatLng start, LatLng end) {
@@ -201,31 +270,13 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       end.latitude,
       end.longitude,
     );
-    // debugPrint("myDebug Remaining Distance ${distanceInMeters / 1000} KM");
     return distanceInMeters / 1000; // Convert to kilometers
   }
 
-  Future<void> _initializeUserLocation() async {
-    try {
-      bool isServiceEnabled = await _location.serviceEnabled();
-      if (!isServiceEnabled) {
-        isServiceEnabled = await _location.requestService();
-        if (!isServiceEnabled) {
-          throw Exception("Location services are disabled.");
-        }
-      }
-      final locationData = await _location.getLocation();
-      _updateUserLocation(locationData);
-
-      countryCode = await getCountryCode(
-          LatLng(locationData.latitude!, locationData.longitude!));
-
-      setState(() => isLoading = false); // byme
-    } catch (e) {
-      debugPrint("Error initializing user location: $e");
-      setState(() => isLoading = false);
-    }
-  }
+  // Future<LatLng> getInitialPosition() async {
+  //     final locationData = await _location.getLocation();
+  //     _initialPosition = LatLng(locationData.latitude!, locationData.longitude!);
+  // }
 
 // Function to update the user's location marker
   void _updateUserLocation(loc.LocationData locationData) {
@@ -234,9 +285,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     setState(() {
       _initialPosition = userLatLng; // Keep track of current position
 
-      // Retrieve the user's heading/bearing (direction they are facing)
-      final heading = locationData.heading ??
-          0.0; // Default to 0.0 if heading is unavailable
+      final heading = locationData.heading ?? 0.0;
 
       _startingMarker = Marker(
         markerId: const MarkerId('userLocation'),
@@ -248,11 +297,14 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     });
 
     // Optionally trigger route recalculation (if needed frequently)
-    // _fetchAndDrawRoutes(currentPosition: userLatLng);
+    if (isJourneyStarted) {
+      _fetchAndDrawRoutes(currentPosition: userLatLng);
+    }
   }
 
   Future<void> _moveToUserLocation() async {
     try {
+      // await _checkLocationPermission();
       if (!hasLocationPermission) {
         debugPrint("myDebug Permission not granted. Cannot move to location.");
         return;
@@ -275,12 +327,15 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       return;
     }
 
-    // if(countryCode!.isNotEmpty){
-    final response = await _places.autocomplete(
-      query,
-      // types: ['(cities)'], // Restrict to cities
-      components: [Component(Component.country, countryCode.toString())],
-    );
+    final response = countryCode != null
+        ? await _places.autocomplete(
+            query,
+            components: [Component(Component.country, countryCode.toString())],
+          )
+        : await _places.autocomplete(
+            query,
+            // components: [Component(Component.country, countryCode.toString())],
+          );
     // }
 
     if (response.isOkay) {
@@ -329,10 +384,10 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-  String getCityTitle(Prediction prediction) {
-    String description = prediction.description ?? '';
-    return description.split(',')[0]; // Extract the first part
-  }
+  // String getCityTitle(Prediction prediction) {
+  //   String description = prediction.description ?? '';
+  //   return description.split(',')[0];
+  // }
 
   Future<BitmapDescriptor> getCustomIcon() async {
     return await BitmapDescriptor.asset(
@@ -344,6 +399,10 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   void _selectCity(Prediction prediction) async {
     FocusScope.of(context).unfocus();
+    // await _checkLocationPermission();
+    if (!hasLocationPermission) {
+      return;
+    }
     setState(() {
       _predictions.clear();
     });
@@ -409,25 +468,14 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             distanceText = "${(totalDistance / 1000).toStringAsFixed(1)} km";
             durationText = "${(totalDuration / 60).toStringAsFixed(0)} min";
             _polylines.clear();
-
-            // Update destination markers
-            _destinationMarkers.clear();
-            for (int i = 0; i < _destinationPositions.length; i++) {
-              _destinationMarkers.add(
-                Marker(
-                  markerId: MarkerId('destination_$i'),
-                  position: _destinationPositions[i],
-                  infoWindow: InfoWindow(
-                    title: 'Stop ${i + 1}',
-                  ),
-                ),
-              );
-            }
           });
 
           await _drawPolylines(data['routes']);
           _updateStopsInfo(route);
         } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("No routes found.")),
+          );
           debugPrint("No routes found.");
         }
       } else {
@@ -442,7 +490,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-  // _updateStopsInfo(data['routes'][0]);
   // ! update Stops info
   Future<void> _updateStopsInfo(dynamic route) async {
     List<dynamic> legs = route['legs'];
@@ -458,6 +505,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         'location': _destinationPositions[i]
       });
     }
+    await _updateMarkers(stops);
 
     setState(() {
       _stopsInfo = stops;
@@ -465,6 +513,22 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       debugPrint(
           "myDebug current stop list size ${_stopsInfo.length} isMoreStops Value $isMoreStopsAdded");
     });
+  }
+
+  Future<void> _updateMarkers(List<Map<String, dynamic>> stops) async {
+    // Update destination markers
+    _destinationMarkers.clear();
+    for (int i = 0; i < _destinationPositions.length; i++) {
+      _destinationMarkers.add(
+        Marker(
+          markerId: MarkerId('destination_$i'),
+          position: _destinationPositions[i],
+          infoWindow: InfoWindow(
+            title: stops[i]['name'],
+          ),
+        ),
+      );
+    }
   }
 
   bool checkStopsStatus() {
@@ -548,7 +612,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-  void _removeStop(Map<String, dynamic> stop) {
+  Future<void> _removeStop(Map<String, dynamic> stop) async {
+    // await _checkLocationPermission();
     setState(() {
       _destinationPositions.remove(stop['location']);
       _destinationMarkers
@@ -592,23 +657,22 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     });
   }
 
-  List<LatLng> _decodePolyline(String encoded) {
-    PolylinePoints polylinePoints = PolylinePoints();
-    List<LatLng> polylineLatLng = polylinePoints
-        .decodePolyline(encoded)
-        .map((point) => LatLng(point.latitude, point.longitude))
-        .toList();
-    return polylineLatLng;
-  }
+  // List<LatLng> _decodePolyline(String encoded) {
+  //   PolylinePoints polylinePoints = PolylinePoints();
+  //   List<LatLng> polylineLatLng = polylinePoints
+  //       .decodePolyline(encoded)
+  //       .map((point) => LatLng(point.latitude, point.longitude))
+  //       .toList();
+  //   return polylineLatLng;
+  // }
 
   void _startLiveNavigation() {
-    _moveToUserLocation();
+    _moveToUserLocation(); // Move the camera to user's current location
 
     _location.changeSettings(
-      accuracy: loc.LocationAccuracy
-          .high, // Set the accuracy to high for better precision
-      distanceFilter:
-          10, // Minimum distance (in meters) before an update is triggered
+      accuracy:
+          loc.LocationAccuracy.high, // Set high accuracy for better precision
+      distanceFilter: 10, // Only update if user moves 10 meters
     );
 
     _locationSubscription = loc.Location.instance.onLocationChanged.listen(
@@ -616,6 +680,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         if (locationData.latitude == null || locationData.longitude == null) {
           return;
         }
+
+        // await _checkLocationPermission();
 
         final currentLocation =
             LatLng(locationData.latitude!, locationData.longitude!);
@@ -629,19 +695,23 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         // Check for route deviation or user movement
         if (shouldRecalculateRoute(currentLocation, getLastDestination())) {
           debugPrint('Recalculating route...');
-          await _fetchAndDrawRoutes();
+          await _fetchAndDrawRoutes(
+              currentPosition: currentLocation); // Re-fetch the route
         }
 
         // Update user location marker and adjust polyline
         _updateUserLocation(locationData);
 
-        // Ensure polyline starts from the current location
+        // Update the polyline to show real-time movement
         setState(() {
           _polylines = _polylines.map((polyline) {
             if (polyline.polylineId.value == "shortestRoute") {
               return Polyline(
                 polylineId: polyline.polylineId,
-                points: [currentLocation, ...polyline.points.sublist(1)],
+                points: [
+                  currentLocation,
+                  ...polyline.points.sublist(1)
+                ], // Start from the current location
                 color: AppColors.primary,
                 width: 8,
               );
@@ -670,20 +740,20 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   //   });
   // }
 
-  gmaps.TravelMode getTravelMode(String mode) {
-    switch (mode.toLowerCase()) {
-      case 'driving':
-        return gmaps.TravelMode.driving;
-      case 'walking':
-        return gmaps.TravelMode.walking;
-      case 'bicycling':
-        return gmaps.TravelMode.bicycling;
-      case 'transit':
-        return gmaps.TravelMode.transit;
-      default:
-        return gmaps.TravelMode.driving;
-    }
-  }
+  // gmaps.TravelMode getTravelMode(String mode) {
+  //   switch (mode.toLowerCase()) {
+  //     case 'driving':
+  //       return gmaps.TravelMode.driving;
+  //     case 'walking':
+  //       return gmaps.TravelMode.walking;
+  //     case 'bicycling':
+  //       return gmaps.TravelMode.bicycling;
+  //     case 'transit':
+  //       return gmaps.TravelMode.transit;
+  //     default:
+  //       return gmaps.TravelMode.driving;
+  //   }
+  // }
 
   String convertKmToMiles(String distanceText) {
     final kmToMilesFactor = 0.621371;
@@ -740,221 +810,181 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!isInternetConnected) {
-      return NoInternetWidget();
-    }
+    try {
+      if (!isInternetConnected) {
+        return NoInternetWidget();
+      }
 
-    Future<bool> _onWillPop(BuildContext context) async {
-      return await showDialog(
-            context: context,
-            builder: (context) => AlertDialog(
-              title: const Text("Exit App"),
-              content: const Text("Are you sure you want to exit the app?"),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false), // No
-                  child: const Text("No"),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(true), // Yes
-                  child: const Text("Yes"),
-                ),
-              ],
-            ),
-          ) ??
-          false; // Return false if dialog is dismissed
-    }
+      // if (!hasLocationPermission) {
+      //   return locationPermissionWidget();
+      // }
 
-    return SafeArea(
-      child: PopScope(
-        canPop: false,
-        onPopInvoked: (bool didPop) async {
-          if (didPop) {
-            return;
-          }
-          // final NavigatorState navigator = Navigator.of(context);
-          final bool? shouldPop = await _onWillPop(context);
-          if (shouldPop ?? false) {
-            // navigator.pop();
-          }
-        },
-        child: Scaffold(
-          resizeToAvoidBottomInset: false,
-          body: isLoading
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      CircularProgressIndicator(),
-                      SizedBox(height: 20.sp),
-                      Text(
-                        "Loading Maps...",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          color: AppColors.primaryText,
-                          fontSize: 14.sp,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              : hasLocationPermission
-                  ? Stack(
+      return SafeArea(
+        child: PopScope(
+          canPop: false, // Prevent default back button behavior
+          onPopInvoked: (bool didPop) async {
+            if (didPop) return;
+            // Show exit confirmation dialog
+            final shouldExit = await showDialog<bool>(
+              context: context,
+              builder: (BuildContext context) {
+                return AlertDialog(
+                  title: const Text('Exit App'),
+                  content: const Text('Do you want to exit the application?'),
+                  actions: <Widget>[
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(context, true),
+                      child: const Text('Exit'),
+                    ),
+                  ],
+                );
+              },
+            );
+
+            // Exit if user confirms
+            if (shouldExit == true) {
+              SystemNavigator.pop();
+            }
+          },
+          child: Scaffold(
+            resizeToAvoidBottomInset: false,
+            body: isLoading
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        GestureDetector(
-                          onTap: () {
-                            // Unfocus to dismiss the keyboard
-                            FocusScope.of(context).unfocus();
-                          },
-                          child: GoogleMap(
-                            onMapCreated: _onMapCreated,
-                            compassEnabled: false,
-                            mapType: MapType.normal,
-                            initialCameraPosition: CameraPosition(
-                              target: _initialPosition,
-                              zoom: 14,
-                            ),
-                            markers: _getMarkers(),
-                            // markers: {
-                            //   if (_startingMarker != null) _startingMarker!,
-                            //   if (_destinationMarker != null) _destinationMarker!,
-                            // },
-                            polylines: _polylines,
-                            trafficEnabled: true,
+                        SpinKitFadingCircle(
+                          color: AppColors.primary,
+                          size: 50.0.sp,
+                        ),
+                        SizedBox(height: 20.sp),
+                        Text(
+                          "Loading Maps...",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.primaryText,
+                            fontSize: 14.sp,
                           ),
                         ),
-                        IntrinsicHeight(
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(
-                                vertical: 24, horizontal: 20),
-                            // color: Colors.amber,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                if (!isJourneyStarted) searchTextFieldCard(),
-                                SizedBox(
-                                  height: 10.h,
-                                ),
-                                if (showBottomSheet)
-                                  _startPositionCard("From: ", "Your Location"),
-                                if (showBottomSheet) _stopPositionCard("To: "),
-                                SizedBox(
-                                  height: 10.h,
-                                ),
-                                Align(
-                                  alignment: Alignment
-                                      .centerRight, // Align to the right side
-                                  child: GestureDetector(
-                                    onTap: (){
-                                      _moveToUserLocation();
-                                    },
-                                    child: Image.asset('assets/ic_current_location.png', height: 45.h,),
-                                  ))
-                                //   CircleAvatar(
-                                //     backgroundColor: Colors.white,
-                                //     radius: 22.sp,
-                                //     child: Center(
-                                //       child: CircleAvatar(
-                                //         backgroundColor: AppColors.secondary,
-                                //         child: IconButton(
-                                //           iconSize: 22.sp,
-                                //           color: AppColors.primaryGrey,
-                                //           onPressed: _moveToUserLocation,
-                                //           icon:
-                                //               Icon(Icons.my_location_outlined),
-                                //         ),
-                                //       ),
-                                //     ),
-                                //   ),
-                                // ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        _predictions.isNotEmpty
-                            ? Container(
-                                margin: EdgeInsets.symmetric(
-                                    horizontal: 30.w, vertical: 90.h),
-                                decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.only(
-                                        bottomLeft: Radius.circular(20.r),
-                                        bottomRight: Radius.circular(20.r))),
-                                child: ListView.builder(
-                                  shrinkWrap: true,
-                                  itemCount: _predictions.length,
-                                  itemBuilder: (context, index) {
-                                    final prediction = _predictions[index];
-                                    return ListTile(
-                                      leading: Icon(
-                                        Icons.location_on,
-                                        color: AppColors.primary,
-                                      ),
-                                      title: Text(prediction.description ?? ''),
-                                      onTap: () {
-                                        // _searchController.text = prediction
-                                        //         .structuredFormatting?.mainText ??
-                                        //     _searchController.text;
-                                        _searchController.text = '';
-                                        _selectCity(prediction);
-                                      },
-                                    );
-                                  },
-                                ),
-                              )
-                            : SizedBox(),
                       ],
-                    )
-                  : Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                    ),
+                  )
+                : hasLocationPermission
+                    ? Stack(
                         children: [
-                          Icon(
-                            Icons.location_off,
-                            size: 80.sp,
-                            color: Colors.grey,
-                          ),
-                          SizedBox(height: 20.sp),
-                          Text(
-                            "Please allow location permissions\nto use the app",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 16.sp,
-                              color: Colors.grey,
+                          GestureDetector(
+                            onTap: () async {
+                              //  await _checkLocationPermission();
+                              // Unfocus to dismiss the keyboard
+                              FocusScope.of(context).unfocus();
+                            },
+                            child: GoogleMap(
+                              onMapCreated: _onMapCreated,
+                              compassEnabled: false,
+                              mapType: MapType.normal,
+                              initialCameraPosition: CameraPosition(
+                                target: _initialPosition,
+                                zoom: 14,
+                              ),
+                              markers: _getMarkers(),
+                              // markers: {
+                              //   if (_startingMarker != null) _startingMarker!,
+                              //   if (_destinationMarker != null) _destinationMarker!,
+                              // },
+                              polylines: _polylines,
+                              trafficEnabled: true,
                             ),
                           ),
-                          SizedBox(height: 20.sp),
-                          ElevatedButton(
-                            onPressed: () async {
-                              await Geolocator.openAppSettings();
-                              // await Geolocator.openLocationSettings();
-                              // _checkLocationPermission();
-                            },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: 40.w, vertical: 15.h),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(50.sp),
+                          IntrinsicHeight(
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(
+                                  vertical: 24, horizontal: 20),
+                              // color: Colors.amber,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (!isJourneyStarted) searchTextFieldCard(),
+                                  SizedBox(
+                                    height: 10.h,
+                                  ),
+                                  if (showBottomSheet)
+                                    _startPositionCard(
+                                        "From: ", "Your Location"),
+                                  if (showBottomSheet)
+                                    _stopPositionCard("To: "),
+                                  SizedBox(
+                                    height: 10.h,
+                                  ),
+                                  Align(
+                                      alignment: Alignment
+                                          .centerRight, // Align to the right side
+                                      child: GestureDetector(
+                                        onTap: () async {
+                                          //    await _checkLocationPermission();
+                                          _moveToUserLocation();
+                                        },
+                                        child: Image.asset(
+                                          'assets/ic_current_location.png',
+                                          height: 45.h,
+                                        ),
+                                      ))
+                                ],
                               ),
                             ),
-                            child: Text(
-                              'Grant Permissions',
-                              style: TextStyle(
-                                  fontSize: 16.sp,
-                                  color: AppColors.primaryText),
-                            ),
                           ),
+                          _predictions.isNotEmpty
+                              ? Container(
+                                  margin: EdgeInsets.symmetric(
+                                      horizontal: 30.w, vertical: 90.h),
+                                  decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.only(
+                                          bottomLeft: Radius.circular(20.r),
+                                          bottomRight: Radius.circular(20.r))),
+                                  child: ListView.builder(
+                                    shrinkWrap: true,
+                                    itemCount: _predictions.length,
+                                    itemBuilder: (context, index) {
+                                      final prediction = _predictions[index];
+                                      return ListTile(
+                                        leading: Icon(
+                                          Icons.location_on,
+                                          color: AppColors.primary,
+                                        ),
+                                        title:
+                                            Text(prediction.description ?? ''),
+                                        onTap: () async {
+                                          //   await _checkLocationPermission();
+                                          // _searchController.text = prediction
+                                          //         .structuredFormatting?.mainText ??
+                                          //     _searchController.text;
+                                          _searchController.text = '';
+                                          _selectCity(prediction);
+                                        },
+                                      );
+                                    },
+                                  ),
+                                )
+                              : SizedBox(),
                         ],
-                      ),
-                    ),
-          // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
-          bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
-          // bottomSheet: _buildStopsList(),
+                      )
+                    : locationPermissionWidget(),
+            // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
+            bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
+            // bottomSheet: _buildStopsList(),
+          ),
         ),
-      ),
-    );
+      );
+    } catch (e, stacktrace) {
+      debugPrint("Build Error: $e\n$stacktrace");
+      _initializeApp();
+      return Center(child: Text("Something went wrong"));
+    }
   }
 
   void _resetState() {
@@ -962,7 +992,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       // isDestinationSelected = false;
       showBottomSheet = false;
       _polylines.clear(); // Clear all polylines
-      _destinationMarker = null;
+      // _destinationMarker = null;
       _searchController.text = '';
       // _initialPosition = null; // Reset the initial position
       // _destinationPosition = null; // Reset the destination position
@@ -980,6 +1010,50 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     });
     // _initializeUserLocation();
     _moveToUserLocation();
+  }
+
+  Widget locationPermissionWidget() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.location_off,
+            size: 80.sp,
+            color: Colors.grey,
+          ),
+          SizedBox(height: 20.sp),
+          Text(
+            "Please allow location permissions\nto use the app",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16.sp,
+              color: Colors.grey,
+            ),
+          ),
+          SizedBox(height: 20.sp),
+          ElevatedButton(
+            onPressed: () async {
+              await Geolocator.openAppSettings();
+              await Geolocator.openLocationSettings();
+              // _checkLocationPermission();
+              _initializeApp();
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(50.sp),
+              ),
+            ),
+            child: Text(
+              'Grant Permissions',
+              style: TextStyle(fontSize: 16.sp, color: AppColors.primaryText),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   Widget bottomSheetWidget() {
@@ -1227,13 +1301,15 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
               ],
             ),
           ),
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: IconButton(
-              icon: Icon(Icons.remove_circle, color: Colors.red),
-              onPressed: () => _removeStop(stop),
-            ),
-          ),
+          isJourneyStarted
+              ? SizedBox()
+              : Align(
+                  alignment: Alignment.bottomCenter,
+                  child: IconButton(
+                    icon: Icon(Icons.remove_circle, color: Colors.red),
+                    onPressed: () => _removeStop(stop),
+                  ),
+                ),
         ],
       ),
     );
@@ -1299,16 +1375,18 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                   ),
                 ),
               ),
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: IconButton(
-                  icon: Icon(Icons.remove_circle, color: Colors.red),
-                  onPressed: () {
-                    _resetState();
-                  },
-                  // onPressed: () => _removeStop(stop),
-                ),
-              ),
+              isJourneyStarted
+                  ? SizedBox()
+                  : Align(
+                      alignment: Alignment.bottomCenter,
+                      child: IconButton(
+                        icon: Icon(Icons.remove_circle, color: Colors.red),
+                        onPressed: () {
+                          _resetState();
+                        },
+                        // onPressed: () => _removeStop(stop),
+                      ),
+                    ),
             ],
           ),
         ],
@@ -1317,47 +1395,13 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   Widget showMultipleStops() {
-    return Container(
+    return SizedBox(
       height: 130.h,
       child: SingleChildScrollView(
         child: Column(
           children: _stopsInfo.map((stop) {
             return multipleStopCardDesign(stop);
           }).toList(),
-        ),
-      ),
-    );
-  }
-
-  Widget _startPositionCard(String title, String? _selectedDestination) {
-    return Container(
-      width: double.infinity,
-      height: 45.h,
-      // margin: EdgeInsets.symmetric(horizontal: 20.w),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(50),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 12.h),
-        child: Row(
-          children: [
-            Image.asset(
-              'assets/current_location_marker.png',
-              height: 20.h,
-            ),
-            SizedBox(
-              width: 5.w,
-            ),
-            Text(
-              title,
-              style: TextStyle(color: AppColors.dividerGrey, fontSize: 12.sp),
-            ),
-            Text(
-              _selectedDestination.toString(),
-              style: TextStyle(color: AppColors.primaryGrey, fontSize: 14.sp),
-            )
-          ],
         ),
       ),
     );
@@ -1396,6 +1440,40 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
               ),
               keyboardType: TextInputType.streetAddress,
             ),
+    );
+  }
+
+  Widget _startPositionCard(String title, String? _selectedDestination) {
+    return Container(
+      width: double.infinity,
+      height: 45.h,
+      // margin: EdgeInsets.symmetric(horizontal: 20.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(50),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 12.h),
+        child: Row(
+          children: [
+            Image.asset(
+              'assets/current_location_marker.png',
+              height: 20.h,
+            ),
+            SizedBox(
+              width: 5.w,
+            ),
+            Text(
+              title,
+              style: TextStyle(color: AppColors.dividerGrey, fontSize: 12.sp),
+            ),
+            Text(
+              _selectedDestination.toString(),
+              style: TextStyle(color: AppColors.primaryGrey, fontSize: 14.sp),
+            )
+          ],
+        ),
+      ),
     );
   }
 
