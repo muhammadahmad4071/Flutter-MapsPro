@@ -239,7 +239,6 @@ class _SignInScreenState extends State<SignInScreen> {
                           ),
                         ),
                 ),
-                Spacer(),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -265,6 +264,34 @@ class _SignInScreenState extends State<SignInScreen> {
                     ),
                   ],
                 ),
+                Spacer(),
+                Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Continue as a ',
+                    style: TextStyle(
+                        fontSize: 14.sp, color: AppColors.primaryGrey),
+                  ),
+                  GestureDetector(
+                      onTap: () {
+                        Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => MapsHomeScreen()));
+                      },
+                      child: Text(
+                        'Guest',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14.sp,
+                          color:
+                              Colors.blue, // Blue color for the "Sign In" text
+                        ),
+                      )),
+                ],
+              ),
+                
                 SizedBox(height: 20.h)
               ],
             ),

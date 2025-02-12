@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:maps/screens/maps_home_screen.dart';
 import 'package:maps/screens/signin_screen.dart';
 import 'package:maps/screens/signup_screen.dart';
 import 'package:maps/util/app_colors.dart';
@@ -232,6 +233,35 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
                             fontWeight: FontWeight.w400),
                       ),
                     ),
+                    SizedBox(
+                      height: 15.h,
+                    ),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Continue as a ',
+                          style: TextStyle(fontSize: 14.sp, color: AppColors.primaryGrey),
+                        ),
+                        GestureDetector(
+                            onTap: () {
+                              Navigator.pushReplacement(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (context) => MapsHomeScreen()));
+                            },
+                            child: Text(
+                              'Guest',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 14.sp,
+                                color: Colors
+                                    .blue, // Blue color for the "Sign In" text
+                              ),
+                            )),
+                      ],
+                    ),
+                    // SizedBox(height: 20.h)
                   ],
                 ),
           SizedBox(

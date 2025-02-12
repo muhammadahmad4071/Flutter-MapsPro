@@ -60,6 +60,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   bool isInternetConnected = true;
   bool isJourneyStarted = false;
   bool isMoreStopsAdded = false;
+  List<String> navigationInstructions = [];
   // bool isDestinationSelected = false;
   // String destinationText = "N/A";
   // Position? userCurrentPosition;
@@ -71,8 +72,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   final loc.Location _location = loc.Location();
   late StreamSubscription<loc.LocationData> _locationSubscription;
   List<LatLng> selectedRoutePoints = [];
-
   Timer? _permissionCheckTimer;
+
+  bool containTolls = false;
 
   @override
   void initState() {
@@ -446,7 +448,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       final directionsUrl =
           'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${finalDestination.latitude},${finalDestination.longitude}&waypoints=$waypoints&mode=$_selectedMode&alternatives=true&key=$myApiKey';
 
-      debugPrint("Fetching routes: $directionsUrl");
+      debugPrint("my Debug Fetching routes: $directionsUrl");
       final response = await http.get(Uri.parse(directionsUrl));
 
       if (response.statusCode == 200) {
@@ -459,19 +461,53 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
           double totalDistance = 0;
           double totalDuration = 0;
+          bool containTolls = false;
+          // List<String> instructionsList = [];
+
+          // Check warnings for toll roads
+          if (route['warnings'] != null) {
+            debugPrint("myDebug toll Warning Response: ${route['warnings']}");
+            for (var warning in route['warnings']) {
+              if (warning.toString().toLowerCase().contains("toll road")) {
+                containTolls = true;
+                break;
+              }
+            }
+          }
+
+          // Check if any leg contains a toll road
           for (var leg in legs) {
             totalDistance += leg['distance']['value'];
             totalDuration += leg['duration']['value'];
+
+            List<String> instructionsList = [];
+            bool legContainsToll = false;
+
+            for (var step in leg['steps']) {
+              String instruction =
+                  step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
+              instructionsList.add(instruction);
+
+              if (instruction.toLowerCase().contains("toll road")) {
+                legContainsToll = true;
+                containTolls = true; // If any leg has toll, the route has tolls
+              }
+            }
+
+            leg['instructions'] =
+                instructionsList; // Store instructions for each stop
+            leg['hasToll'] = legContainsToll; // Store toll info for this leg
           }
 
           setState(() {
             distanceText = "${(totalDistance / 1000).toStringAsFixed(1)} km";
             durationText = "${(totalDuration / 60).toStringAsFixed(0)} min";
+            // navigationInstructions = instructionsList;
             _polylines.clear();
           });
 
           await _drawPolylines(data['routes']);
-          _updateStopsInfo(route);
+          _updateStopsInfo(route, legs);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text("No routes found.")),
@@ -490,28 +526,50 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
+  // _directionInstruction(dynamic leg) {
+  //   // Extract turn-by-turn instructions
+  //   List<String> instructionsList = [];
+  //   for (var step in leg) {
+  //     String instruction =
+  //         step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
+  //     debugPrint("myDebug Adding html_instructions $instruction");
+  //     instructionsList.add(instruction);
+  //     // containTolls = instruction.toLowerCase().contains("Toll Road");
+
+  //     if (instruction.toLowerCase().contains("toll road")) {
+  //       containTolls = true;
+  //       debugPrint(
+  //           "myDebug toll road selected contain tolls $containTolls html_instructions ${step['html_instructions']}");
+  //     }
+  //   }
+
+  //   navigationInstructions = instructionsList; // Store for UI display
+  // }
+
   // ! update Stops info
-  Future<void> _updateStopsInfo(dynamic route) async {
-    List<dynamic> legs = route['legs'];
+  Future<void> _updateStopsInfo(dynamic route, List<dynamic> legs) async {
     List<Map<String, dynamic>> stops = [];
 
     for (int i = 0; i < legs.length; i++) {
       String placeName = await _getPlaceName(_destinationPositions[i]);
+
       stops.add({
         'stopNo': "Stop ${i + 1}",
         'name': placeName,
         'distance': legs[i]['distance']['text'],
         'duration': legs[i]['duration']['text'],
-        'location': _destinationPositions[i]
+        'location': _destinationPositions[i],
+        'hasToll': legs[i]['hasToll'], // Fetch from leg data
+        'instructions': legs[i]['instructions'], // Store instructions
       });
     }
+
     await _updateMarkers(stops);
 
     setState(() {
       _stopsInfo = stops;
       isMoreStopsAdded = checkStopsStatus();
-      debugPrint(
-          "myDebug current stop list size ${_stopsInfo.length} isMoreStops Value $isMoreStopsAdded");
+      debugPrint("Updated stops info: $_stopsInfo");
     });
   }
 
@@ -626,7 +684,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   void _onRouteSelected(String selectedRouteId, List<dynamic> routes) {
     setState(() {
-      // Update each polyline's color and width based on selection
+      containTolls = false;
+
+      // Update polyline appearance
       _polylines = _polylines.map((polyline) {
         return Polyline(
           polylineId: polyline.polylineId,
@@ -644,18 +704,78 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         );
       }).toSet();
 
-      // Find the selected route to update distance and duration
-      final selectedRoute = _polylines.firstWhere(
-          (polyline) => polyline.polylineId.value == selectedRouteId);
-      final selectedRouteDetails = routes.firstWhere(
-          (route) => route['summary'] == selectedRouteId)['legs'][0];
-      distanceText = selectedRouteDetails['distance']['text'];
-      durationText = selectedRouteDetails['duration']['text'];
+      // Find the selected route details
+      final selectedRouteData = routes.firstWhere(
+          (route) => route['summary'] == selectedRouteId,
+          orElse: () => null);
 
-      debugPrint(
-          "Selected route distance: $distanceText, duration: $durationText");
+      if (selectedRouteData != null) {
+        final legs = selectedRouteData['legs'];
+
+        double totalDistance = 0;
+        double totalDuration = 0;
+        List<String> instructionsList = [];
+
+        for (var leg in legs) {
+          totalDistance += leg['distance']['value'];
+          totalDuration += leg['duration']['value'];
+
+          for (var step in leg['steps']) {
+            String instruction =
+                step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
+            instructionsList.add(instruction);
+
+            if (instruction.toLowerCase().contains("toll road")) {
+              containTolls = true;
+            }
+          }
+        }
+
+        distanceText = "${(totalDistance / 1000).toStringAsFixed(1)} km";
+        durationText = "${(totalDuration / 60).toStringAsFixed(0)} min";
+        navigationInstructions = instructionsList; // Store for UI display
+
+        debugPrint("Route Toll Info: $containTolls");
+        debugPrint(
+            "Turn-by-turn navigation: ${navigationInstructions.join(', ')}");
+      } else {
+        debugPrint("Selected route not found.");
+      }
     });
   }
+
+  // void _onRouteSelected(String selectedRouteId, List<dynamic> routes) {
+  //   setState(() {
+  //     // Update each polyline's color and width based on selection
+  //     _polylines = _polylines.map((polyline) {
+  //       return Polyline(
+  //         polylineId: polyline.polylineId,
+  //         points: polyline.points,
+  //         color: polyline.polylineId.value == selectedRouteId
+  //             ? AppColors.primary
+  //             : Colors.grey,
+  //         width: polyline.polylineId.value == selectedRouteId ? 8 : 5,
+  //         consumeTapEvents: true,
+  //         onTap: () {
+  //           if (polyline.polylineId.value != selectedRouteId) {
+  //             _onRouteSelected(polyline.polylineId.value, routes);
+  //           }
+  //         },
+  //       );
+  //     }).toSet();
+
+  //     // Find the selected route to update distance and duration
+  //     final selectedRoute = _polylines.firstWhere(
+  //         (polyline) => polyline.polylineId.value == selectedRouteId);
+  //     final selectedRouteDetails = routes.firstWhere(
+  //         (route) => route['summary'] == selectedRouteId)['legs'][0];
+  //     distanceText = selectedRouteDetails['distance']['text'];
+  //     durationText = selectedRouteDetails['duration']['text'];
+
+  //     debugPrint(
+  //         "Selected route distance: $distanceText, duration: $durationText");
+  //   });
+  // }
 
   // List<LatLng> _decodePolyline(String encoded) {
   //   PolylinePoints polylinePoints = PolylinePoints();
@@ -1001,6 +1121,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       tollInfoText = ''; // Clear toll info text
       _destinationPositions.clear(); // List of multiple destinations
       _destinationMarkers.clear(); // Markers for all destinations
+      containTolls = false;
       _stopsInfo.clear();
       if (isJourneyStarted) {
         _locationSubscription.cancel();
@@ -1230,6 +1351,11 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                     color: AppColors.primaryGrey,
                     size: 15.sp,
                   ),
+                  Icon(
+                    Icons.keyboard_double_arrow_down_rounded,
+                    color: AppColors.primaryGrey,
+                    size: 15.sp,
+                  ),
                 ],
                 // Image.asset(
                 //   'assets/destination_line.png',
@@ -1238,18 +1364,35 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
               ],
             ),
           ),
-          SizedBox(
-            width: 250.w,
+          Expanded(
+            // color: Colors.red,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  stop['stopNo'],
-                  style: TextStyle(
-                      fontSize: 16.sp,
-                      color: AppColors.primaryText,
-                      fontWeight: FontWeight.w500),
-                  // textAlign: TextAlign.center,
+                
+                Container(
+                  height: 20.h,
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        stop['stopNo'],
+                        style: TextStyle(
+                            fontSize: 16.sp,
+                            color: AppColors.primaryText,
+                            fontWeight: FontWeight.w500),
+                        // textAlign: TextAlign.center,
+                      ),
+                      Spacer(),
+                      isJourneyStarted
+                          ? SizedBox()
+                          : IconButton(
+                            icon:
+                                Icon(Icons.remove_circle, color: Colors.red),
+                            onPressed: () => _removeStop(stop),
+                          ),
+                    ],
+                  ),
                 ),
                 SizedBox(
                   height: 5.h,
@@ -1297,38 +1440,161 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                     ),
                   ],
                 ),
+                stop['hasToll']
+                    ? Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          Icon(Icons.toll,
+                              size: 22.sp, color: AppColors.primary),
+                          SizedBox(width: 5.w),
+                          Padding(
+                            padding: EdgeInsets.only(top: 3.h),
+                            child: Text(
+                              "This Route contain tolls.",
+                              style: TextStyle(
+                                  fontSize: 14.sp,
+                                  color: AppColors.primaryGrey),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ],
+                      )
+                    : SizedBox(),
+                Theme(
+                  data: Theme.of(context)
+                      .copyWith(dividerColor: Colors.transparent),
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.only(right: 14.w),
+                    // tilePadding: EdgeInsets.symmetric(horizontal: 16),
+
+                    initiallyExpanded: isExpanded,
+                    onExpansionChanged: (expanded) {
+                      setState(() {
+                        isExpanded = expanded;
+                      });
+                    },
+                    title: Text(
+                      "Steps",
+                      style: TextStyle(
+                          fontSize: 16.sp,
+                          color: AppColors.primaryText,
+                          fontWeight: FontWeight.w500),
+                    ),
+                    trailing: Icon(isExpanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down),
+                    children: [
+                      Container(
+                        // color: Colors.amber,
+                        height: stop['instructions'].isNotEmpty ? 100 : 50,
+                        child: stop['instructions'].isNotEmpty
+                            ? ListView.builder(
+                                itemCount: stop['instructions'].length,
+                                itemBuilder: (context, index) {
+                                  String singleInstruction =
+                                      stop['instructions'][index];
+                                  Icon leadingIcon = getLeadingIcon(singleInstruction);
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: CircleAvatar(
+                                      backgroundColor: AppColors.secondary,
+                                      child: leadingIcon,
+                                    ),
+                                    title: Text(
+                                      singleInstruction, // Remove HTML tags
+                                      style: TextStyle(
+                                          fontSize: 14.sp,
+                                          color: AppColors.primaryText),
+                                    ),
+                                  );
+                                },
+                              )
+                            : Center(
+                                child: Text(
+                                    "No navigation instructions available")),
+                      ),
+                    ],
+                  ),
+                ),
                 Divider(color: AppColors.textField),
               ],
             ),
           ),
-          isJourneyStarted
-              ? SizedBox()
-              : Align(
-                  alignment: Alignment.bottomCenter,
-                  child: IconButton(
-                    icon: Icon(Icons.remove_circle, color: Colors.red),
-                    onPressed: () => _removeStop(stop),
-                  ),
-                ),
+          // isJourneyStarted
+          //     ? SizedBox()
+          //     : Align(
+          //         alignment: Alignment.bottomCenter,
+          //         child: IconButton(
+          //           icon: Icon(Icons.remove_circle, color: Colors.red),
+          //           onPressed: () => _removeStop(stop),
+          //         ),
+          //       ),
         ],
       ),
     );
   }
 
+  /// Function to return the appropriate icon based on instruction
+  Icon getLeadingIcon(String instruction) {
+    if (instruction.toLowerCase().contains("turn  left")) {
+      return Icon(Icons.turn_left, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("ramp") &&
+        instruction.toLowerCase().contains("right")) {
+      return Icon(Icons.ramp_right, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("ramp") &&
+        instruction.toLowerCase().contains("left")) {
+      return Icon(Icons.ramp_left, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("slight  left")) {
+      return Icon(Icons.turn_slight_left, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("slight  right")) {
+      return Icon(Icons.turn_slight_right, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("turn  right")) {
+      return Icon(Icons.turn_right, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("straight")) {
+      return Icon(Icons.straight, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("u-turn") &&
+        instruction.toLowerCase().contains("left")) {
+      return Icon(Icons.u_turn_left, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("u-turn") &&
+        instruction.toLowerCase().contains("right")) {
+      return Icon(Icons.u_turn_right, color: AppColors.primaryGrey);
+    } else {
+      return Icon(Icons.straight, color: AppColors.primaryGrey);
+    }
+  }
+
+  bool isExpanded = false;
   Widget showSingleStop() {
     return IntrinsicHeight(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            (_stopsInfo.isNotEmpty)
-                ? _stopsInfo.last['name']
-                : finalDestinationName,
-            style: TextStyle(
-              fontSize: 20.sp,
-              color: AppColors.primaryText,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              Text(
+                (_stopsInfo.isNotEmpty)
+                    ? _stopsInfo.last['name']
+                    : finalDestinationName,
+                style: TextStyle(
+                  fontSize: 20.sp,
+                  color: AppColors.primaryText,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Spacer(),
+              isJourneyStarted
+                  ? SizedBox()
+                  : Align(
+                      alignment: Alignment.bottomCenter,
+                      child: IconButton(
+                        icon: Icon(Icons.remove_circle, color: Colors.red),
+                        onPressed: () {
+                          _resetState();
+                        },
+                        // onPressed: () => _removeStop(stop),
+                      ),
+                    ),
+            ],
           ),
           SizedBox(height: 10.h),
           Row(
@@ -1364,31 +1630,100 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             ],
           ),
           SizedBox(height: 10.h),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  finalDestinationDescription,
-                  style: TextStyle(
-                    fontSize: 14.sp,
-                    color: AppColors.dividerGrey,
-                  ),
-                ),
-              ),
-              isJourneyStarted
-                  ? SizedBox()
-                  : Align(
-                      alignment: Alignment.bottomCenter,
-                      child: IconButton(
-                        icon: Icon(Icons.remove_circle, color: Colors.red),
-                        onPressed: () {
-                          _resetState();
-                        },
-                        // onPressed: () => _removeStop(stop),
+          containTolls
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    Icon(Icons.toll, size: 22.sp, color: AppColors.primary),
+                    SizedBox(width: 5.w),
+                    Padding(
+                      padding: EdgeInsets.only(top: 3.h),
+                      child: Text(
+                        "This Route contain tolls.",
+                        style: TextStyle(
+                            fontSize: 14.sp, color: AppColors.primaryGrey),
+                        textAlign: TextAlign.center,
                       ),
                     ),
-            ],
-          ),
+                  ],
+                )
+              : SizedBox(),
+          // Row(
+          //   children: [
+          //     Expanded(
+          //       child: Text(
+          //         finalDestinationDescription,
+          //         style: TextStyle(
+          //           fontSize: 14.sp,
+          //           color: AppColors.dividerGrey,
+          //         ),
+          //       ),
+          //     ),
+          //     isJourneyStarted
+          //         ? SizedBox()
+          //         : Align(
+          //             alignment: Alignment.bottomCenter,
+          //             child: IconButton(
+          //               icon: Icon(Icons.remove_circle, color: Colors.red),
+          //               onPressed: () {
+          //                 _resetState();
+          //               },
+          //               // onPressed: () => _removeStop(stop),
+          //             ),
+          //           ),
+          //   ],
+          // ),
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              // tilePadding: EdgeInsets.symmetric(horizontal: 16),
+              initiallyExpanded: isExpanded,
+              onExpansionChanged: (expanded) {
+                setState(() {
+                  isExpanded = expanded;
+                });
+              },
+              title: Text(
+                "Steps",
+                style: TextStyle(
+                    fontSize: 16.sp,
+                    color: AppColors.primaryText,
+                    fontWeight: FontWeight.w500),
+              ),
+              trailing: Icon(isExpanded
+                  ? Icons.keyboard_arrow_up
+                  : Icons.keyboard_arrow_down),
+              children: [
+                Container(
+                  // color: Colors.amber,
+                  height: navigationInstructions.isNotEmpty ? 100 : 50,
+                  child: navigationInstructions.isNotEmpty
+                      ? ListView.builder(
+                          itemCount: navigationInstructions.length,
+                          itemBuilder: (context, index) {
+                            String singleInstruction =
+                                navigationInstructions[index];
+                                 Icon leadingIcon = getLeadingIcon(singleInstruction);
+                            return ListTile(
+                              leading: CircleAvatar(
+                                backgroundColor: AppColors.secondary,
+                                child: leadingIcon,
+                              ),
+                              title: Text(
+                                singleInstruction, // Remove HTML tags
+                                style: TextStyle(
+                                    fontSize: 14.sp,
+                                    color: AppColors.primaryText),
+                              ),
+                            );
+                          },
+                        )
+                      : Center(
+                          child: Text("No navigation instructions available")),
+                ),
+              ],
+            ),
+          )
         ],
       ),
     );

@@ -45,7 +45,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     _initializeFirebase();
   }
 
-  
   @override
   void dispose() {
     _connectivitySubscription.cancel();
@@ -84,7 +83,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     print('Connectivity changed: $_connectionStatus bool $isInternetConnected');
   }
 
-
   Future<void> _initializeFirebase() async {
     final FirebaseApp app = await Firebase.initializeApp();
     _auth = FirebaseAuth.instanceFor(app: app);
@@ -117,7 +115,7 @@ class _SignUpScreenState extends State<SignUpScreen> {
         Navigator.pushReplacement(
             context, MaterialPageRoute(builder: (context) => MapsHomeScreen()));
       } catch (e) {
-          print("myDebug error in signup: $e");
+        print("myDebug error in signup: $e");
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(_getErrorMessage(e))),
         );
@@ -179,7 +177,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     double screenWidth = MediaQuery.of(context).size.width;
@@ -205,8 +202,8 @@ class _SignUpScreenState extends State<SignUpScreen> {
                   ),
                 ),
               ),
-              _buildTextField(
-                  _nameController, "Full Name", Icons.person_outlined, TextInputType.name),
+              _buildTextField(_nameController, "Full Name",
+                  Icons.person_outlined, TextInputType.name),
               SizedBox(height: 16.h),
               _buildTextField(_emailController, "Email", Icons.email_outlined,
                   TextInputType.emailAddress),
@@ -251,7 +248,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                             fontSize: 16, color: AppColors.primaryText),
                       ),
                     ),
-              const Spacer(),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -268,6 +264,33 @@ class _SignUpScreenState extends State<SignUpScreen> {
                       style: TextStyle(color: Colors.blue),
                     ),
                   ),
+                ],
+              ),
+              const Spacer(),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    'Continue as a ',
+                    style: TextStyle(
+                        fontSize: 14.sp, color: AppColors.primaryGrey),
+                  ),
+                  GestureDetector(
+                      onTap: () {
+                        Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => MapsHomeScreen()));
+                      },
+                      child: Text(
+                        'Guest',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 14.sp,
+                          color:
+                              Colors.blue, // Blue color for the "Sign In" text
+                        ),
+                      )),
                 ],
               ),
               SizedBox(height: 20.h),
