@@ -132,168 +132,171 @@ class _SignInScreenState extends State<SignInScreen> {
       return NoInternetWidget();
     }
     double screenWidth = MediaQuery.of(context).size.width;
-    return Scaffold(
-       resizeToAvoidBottomInset: false,
-      body: SafeArea(
-        child: Container(
-          color: Colors.white,
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20.w),
-            child: Column(
-              children: [
-                Padding(
-                  padding: EdgeInsets.symmetric(vertical: 40.h),
-                  child: Center(
-                      child: Text(
-                    "Welcome Back",
-                    style: TextStyle(
-                      fontWeight: FontWeight.w500,
-                      fontSize: 28.sp,
-                      color: AppColors.primaryText,
-                    ),
-                  )),
-                ),
-
-                // Email TextField
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.textField, // Set background color
-                    borderRadius:
-                        BorderRadius.circular(10), // 10-pixel corner radius
-                  ),
-                  child: TextField(
-                    enabled: !_isLoading,
-                    controller: _emailController, // Email controller
-                    decoration: InputDecoration(
-                      labelText: 'Email',
-                      prefixIcon: Icon(Icons.email_outlined), // Left-side icon
-                      border: InputBorder.none, // No border
-                    ),
-                    keyboardType: TextInputType.emailAddress, // Email keyboard
-                  ),
-                ),
-                SizedBox(height: 16.h),
-
-                // Password TextField with show/hide icon and rounded corners
-                Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.textField, // Set background color
-                    borderRadius:
-                        BorderRadius.circular(10), // 10-pixel corner radius
-                  ),
-                  child: TextField(
-                    enabled: !_isLoading,
-                    controller: _passwordController, // Password controller
-                    decoration: InputDecoration(
-                      labelText: 'Password',
-                      prefixIcon: Icon(Icons.lock_outlined), // Left-side icon
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _isPasswordVisible
-                              ? Icons.visibility_outlined
-                              : Icons.visibility_off_outlined,
-                        ),
-                        onPressed: () {
-                          setState(() {
-                            _isPasswordVisible = !_isPasswordVisible;
-                          });
-                        },
+    return AbsorbPointer(
+      absorbing: _isLoading, 
+      child: Scaffold(
+         resizeToAvoidBottomInset: false,
+        body: SafeArea(
+          child: Container(
+            color: Colors.white,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20.w),
+              child: Column(
+                children: [
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40.h),
+                    child: Center(
+                        child: Text(
+                      "Welcome Back",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 28.sp,
+                        color: AppColors.primaryText,
                       ),
-                      border: InputBorder.none, // No border
-                    ),
-                    obscureText: !_isPasswordVisible, // Show/Hide password
+                    )),
                   ),
-                ),
-
-                // Submit Button
-                Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20.h),
-                  child: _isLoading
-                      ? SizedBox(
-                          height: 20,
-                          width: 20,
-                          child: CircularProgressIndicator(
-                            color: AppColors.primary,
-                            strokeWidth: 2.0,
+      
+                  // Email TextField
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.textField, // Set background color
+                      borderRadius:
+                          BorderRadius.circular(10), // 10-pixel corner radius
+                    ),
+                    child: TextField(
+                      enabled: !_isLoading,
+                      controller: _emailController, // Email controller
+                      decoration: InputDecoration(
+                        labelText: 'Email',
+                        prefixIcon: Icon(Icons.email_outlined), // Left-side icon
+                        border: InputBorder.none, // No border
+                      ),
+                      keyboardType: TextInputType.emailAddress, // Email keyboard
+                    ),
+                  ),
+                  SizedBox(height: 16.h),
+      
+                  // Password TextField with show/hide icon and rounded corners
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.textField, // Set background color
+                      borderRadius:
+                          BorderRadius.circular(10), // 10-pixel corner radius
+                    ),
+                    child: TextField(
+                      enabled: !_isLoading,
+                      controller: _passwordController, // Password controller
+                      decoration: InputDecoration(
+                        labelText: 'Password',
+                        prefixIcon: Icon(Icons.lock_outlined), // Left-side icon
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            _isPasswordVisible
+                                ? Icons.visibility_outlined
+                                : Icons.visibility_off_outlined,
                           ),
-                        )
-                      : ElevatedButton(
                           onPressed: () {
-                            _signIn();
+                            setState(() {
+                              _isPasswordVisible = !_isPasswordVisible;
+                            });
                           },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primary,
-                            padding: EdgeInsets.symmetric(
-                                horizontal: 40.w,
-                                vertical: 15.h), // Add padding for size
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(
-                                  10.sp), // Set the radius for rounded corners
+                        ),
+                        border: InputBorder.none, // No border
+                      ),
+                      obscureText: !_isPasswordVisible, // Show/Hide password
+                    ),
+                  ),
+      
+                  // Submit Button
+                  Padding(
+                    padding: EdgeInsets.symmetric(vertical: 20.h),
+                    child: _isLoading
+                        ? SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(
+                              color: AppColors.primary,
+                              strokeWidth: 2.0,
                             ),
-                            minimumSize: Size(screenWidth, 50.sp),
+                          )
+                        : ElevatedButton(
+                            onPressed: () {
+                              _signIn();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: 40.w,
+                                  vertical: 15.h), // Add padding for size
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(
+                                    10.sp), // Set the radius for rounded corners
+                              ),
+                              minimumSize: Size(screenWidth, 50.sp),
+                            ),
+                            child: Text(
+                              'Sign In',
+                              style: TextStyle(
+                                  fontSize: 16.sp, color: AppColors.primaryText),
+                            ),
                           ),
-                          child: Text(
-                            'Sign In',
-                            style: TextStyle(
-                                fontSize: 16.sp, color: AppColors.primaryText),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Don\'t have an account? ',
+                        style: TextStyle(fontSize: 16.sp),
+                      ),
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => SignUpScreen()));
+                        },
+                        child: Text(
+                          'Sign Up',
+                          style: TextStyle(
+                            fontSize: 16.sp,
+                            color:
+                                Colors.blue, // Blue color for the "Sign In" text
                           ),
                         ),
-                ),
-                Row(
+                      ),
+                    ],
+                  ),
+                  Spacer(),
+                  Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      'Don\'t have an account? ',
-                      style: TextStyle(fontSize: 16.sp),
+                      'Continue as a ',
+                      style: TextStyle(
+                          fontSize: 14.sp, color: AppColors.primaryGrey),
                     ),
-                    TextButton(
-                      onPressed: () {
-                        Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                                builder: (context) => SignUpScreen()));
-                      },
-                      child: Text(
-                        'Sign Up',
-                        style: TextStyle(
-                          fontSize: 16.sp,
-                          color:
-                              Colors.blue, // Blue color for the "Sign In" text
-                        ),
-                      ),
-                    ),
+                    GestureDetector(
+                        onTap: () {
+                          Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => MapsHomeScreen()));
+                        },
+                        child: Text(
+                          'Guest',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14.sp,
+                            color:
+                                Colors.blue, // Blue color for the "Sign In" text
+                          ),
+                        )),
                   ],
                 ),
-                Spacer(),
-                Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Continue as a ',
-                    style: TextStyle(
-                        fontSize: 14.sp, color: AppColors.primaryGrey),
-                  ),
-                  GestureDetector(
-                      onTap: () {
-                        Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                                builder: (context) => MapsHomeScreen()));
-                      },
-                      child: Text(
-                        'Guest',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14.sp,
-                          color:
-                              Colors.blue, // Blue color for the "Sign In" text
-                        ),
-                      )),
+                  
+                  SizedBox(height: 20.h)
                 ],
               ),
-                
-                SizedBox(height: 20.h)
-              ],
             ),
           ),
         ),

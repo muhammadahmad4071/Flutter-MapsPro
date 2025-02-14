@@ -4,6 +4,7 @@ import 'package:maps/screens/maps_home_screen.dart';
 import 'package:maps/screens/signin_screen.dart';
 import 'package:maps/screens/signup_screen.dart';
 import 'package:maps/util/app_colors.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 // import 'package:shared_preferences/shared_preferences.dart';
 // import 'package:shared_preferences/shared_preferences.dart';
 import 'package:smooth_page_indicator/smooth_page_indicator.dart';
@@ -23,6 +24,7 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
   @override
   void initState() {
     super.initState();
+    hideOnBoardScreens();
   }
 
   @override
@@ -31,11 +33,11 @@ class _OnBoardScreenState extends State<OnBoardScreen> {
     super.dispose();
   }
 
-  // Future<void> hideOnBoardScreens() async {
-  //   // Inside your OnBoardScreen logic (e.g., when the user finishes onboarding)
-  //   SharedPreferences prefs = await SharedPreferences.getInstance();
-  //   prefs.setBool('isFirstTime', false);
-  // }
+  Future<void> hideOnBoardScreens() async {
+    // Inside your OnBoardScreen logic (e.g., when the user finishes onboarding)
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    prefs.setBool('onboarding_seen', true);
+  }
 
   Widget buildPage({
     Color? color,

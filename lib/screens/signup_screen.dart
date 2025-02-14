@@ -180,121 +180,124 @@ class _SignUpScreenState extends State<SignUpScreen> {
   @override
   Widget build(BuildContext context) {
     double screenWidth = MediaQuery.of(context).size.width;
-    return Scaffold(
-      resizeToAvoidBottomInset: false,
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Container(
-          color: Colors.transparent,
-          padding: EdgeInsets.symmetric(horizontal: 20.w),
-          child: Column(
-            children: [
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: 40.h),
-                child: Center(
-                  child: Text(
-                    "Get Started",
-                    style: TextStyle(
-                      fontWeight: FontWeight.w500,
-                      fontSize: 28.sp,
-                      color: AppColors.primaryText,
+    return AbsorbPointer(
+      absorbing: _isLoading, 
+      child: Scaffold(
+        resizeToAvoidBottomInset: false,
+        backgroundColor: Colors.white,
+        body: SafeArea(
+          child: Container(
+            color: Colors.transparent,
+            padding: EdgeInsets.symmetric(horizontal: 20.w),
+            child: Column(
+              children: [
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 40.h),
+                  child: Center(
+                    child: Text(
+                      "Get Started",
+                      style: TextStyle(
+                        fontWeight: FontWeight.w500,
+                        fontSize: 28.sp,
+                        color: AppColors.primaryText,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              _buildTextField(_nameController, "Full Name",
-                  Icons.person_outlined, TextInputType.name),
-              SizedBox(height: 16.h),
-              _buildTextField(_emailController, "Email", Icons.email_outlined,
-                  TextInputType.emailAddress),
-              SizedBox(height: 16.h),
-              _buildPasswordField(
-                  _passwordController, "Password", _isPasswordVisible, (value) {
-                setState(() {
-                  _isPasswordVisible = value;
-                });
-              }),
-              SizedBox(height: 16.h),
-              _buildPasswordField(_confirmPasswordController,
-                  "Confirm Password", _isConfirmPasswordVisible, (value) {
-                setState(() {
-                  _isConfirmPasswordVisible = value;
-                });
-              }),
-              SizedBox(height: 32.h),
-              _isLoading
-                  ? SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        color: AppColors.primary,
-                        strokeWidth: 2.0,
-                      ),
-                    )
-                  : ElevatedButton(
-                      onPressed: _signUp,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 40, vertical: 15),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                _buildTextField(_nameController, "Full Name",
+                    Icons.person_outlined, TextInputType.name),
+                SizedBox(height: 16.h),
+                _buildTextField(_emailController, "Email", Icons.email_outlined,
+                    TextInputType.emailAddress),
+                SizedBox(height: 16.h),
+                _buildPasswordField(
+                    _passwordController, "Password", _isPasswordVisible, (value) {
+                  setState(() {
+                    _isPasswordVisible = value;
+                  });
+                }),
+                SizedBox(height: 16.h),
+                _buildPasswordField(_confirmPasswordController,
+                    "Confirm Password", _isConfirmPasswordVisible, (value) {
+                  setState(() {
+                    _isConfirmPasswordVisible = value;
+                  });
+                }),
+                SizedBox(height: 32.h),
+                _isLoading
+                    ? SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          color: AppColors.primary,
+                          strokeWidth: 2.0,
                         ),
-                        minimumSize: Size(screenWidth, 50),
+                      )
+                    : ElevatedButton(
+                        onPressed: _signUp,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 40, vertical: 15),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          minimumSize: Size(screenWidth, 50),
+                        ),
+                        child: const Text(
+                          'Sign Up',
+                          style: TextStyle(
+                              fontSize: 16, color: AppColors.primaryText),
+                        ),
                       ),
-                      child: const Text(
-                        'Sign Up',
-                        style: TextStyle(
-                            fontSize: 16, color: AppColors.primaryText),
-                      ),
-                    ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('Join us before? '),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => SignInScreen()));
-                    },
-                    child: const Text(
-                      'Sign In',
-                      style: TextStyle(color: Colors.blue),
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    'Continue as a ',
-                    style: TextStyle(
-                        fontSize: 14.sp, color: AppColors.primaryGrey),
-                  ),
-                  GestureDetector(
-                      onTap: () {
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Join us before? '),
+                    TextButton(
+                      onPressed: () {
                         Navigator.pushReplacement(
                             context,
                             MaterialPageRoute(
-                                builder: (context) => MapsHomeScreen()));
+                                builder: (context) => SignInScreen()));
                       },
-                      child: Text(
-                        'Guest',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 14.sp,
-                          color:
-                              Colors.blue, // Blue color for the "Sign In" text
-                        ),
-                      )),
-                ],
-              ),
-              SizedBox(height: 20.h),
-            ],
+                      child: const Text(
+                        'Sign In',
+                        style: TextStyle(color: Colors.blue),
+                      ),
+                    ),
+                  ],
+                ),
+                const Spacer(),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      'Continue as a ',
+                      style: TextStyle(
+                          fontSize: 14.sp, color: AppColors.primaryGrey),
+                    ),
+                    GestureDetector(
+                        onTap: () {
+                          Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                  builder: (context) => MapsHomeScreen()));
+                        },
+                        child: Text(
+                          'Guest',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14.sp,
+                            color:
+                                Colors.blue, // Blue color for the "Sign In" text
+                          ),
+                        )),
+                  ],
+                ),
+                SizedBox(height: 20.h),
+              ],
+            ),
           ),
         ),
       ),

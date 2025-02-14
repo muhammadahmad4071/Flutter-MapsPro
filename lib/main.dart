@@ -6,8 +6,10 @@ import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:maps/screens/maps_home_screen.dart';
 import 'package:maps/screens/on_board_screen.dart';
+import 'package:maps/screens/signup_screen.dart';
 import 'package:maps/util/app_colors.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,6 +31,7 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   Future<bool>? _userStatusFuture;
   bool _isSplashVisible = true; // Track if splash screen should be visible
+  bool hasSeenOnboarding = false;
 
   @override
   void initState() {
@@ -46,6 +49,9 @@ class _MyAppState extends State<MyApp> {
   // Check if the user is logged in and if they have seen the onboarding screen
   Future<bool> _checkUserStatus() async {
     try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      hasSeenOnboarding = prefs.getBool('onboarding_seen') ?? false;
+      debugPrint("myDebug test hasSeenOnboarding: $hasSeenOnboarding");
       FirebaseAuth.instance.authStateChanges().listen((user) {
         if (user == null) {
           debugPrint('myDebug User is signed out!');
@@ -64,7 +70,9 @@ class _MyAppState extends State<MyApp> {
       Future.delayed(Duration(seconds: 2), () {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => OnBoardScreen()),
+          MaterialPageRoute(
+              builder: (context) =>
+                  hasSeenOnboarding ? SignUpScreen() : OnBoardScreen()),
         );
       });
       return false;
@@ -78,6 +86,7 @@ class _MyAppState extends State<MyApp> {
       minTextAdapt: true,
       builder: (context, child) {
         return MaterialApp(
+          debugShowCheckedModeBanner: false,
           title: 'Maps App',
           theme: ThemeData(
             primaryColor: AppColors.primary,
@@ -94,7 +103,7 @@ class _MyAppState extends State<MyApp> {
                     } else if (snapshot.hasError ||
                         !snapshot.hasData ||
                         !snapshot.data!) {
-                      return OnBoardScreen();
+                      return hasSeenOnboarding ? SignUpScreen() : OnBoardScreen();
                     } else {
                       return MapsHomeScreen();
                     }

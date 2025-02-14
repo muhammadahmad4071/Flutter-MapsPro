@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -10,6 +11,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_webservice/places.dart';
 import 'package:http/http.dart' as http;
 import 'package:maps/screens/no_internet.dart';
+import 'package:maps/screens/signup_screen.dart';
 import 'package:maps/util/app_colors.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 import 'package:google_maps_webservice/directions.dart' as gmaps;
@@ -73,12 +75,14 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   late StreamSubscription<loc.LocationData> _locationSubscription;
   List<LatLng> selectedRoutePoints = [];
   Timer? _permissionCheckTimer;
+  User? _user;
 
   bool containTolls = false;
 
   @override
   void initState() {
     super.initState();
+    _checkUserStatus();
     _initializeApp();
     initConnectivity();
     _connectivitySubscription =
@@ -546,12 +550,40 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   //   navigationInstructions = instructionsList; // Store for UI display
   // }
 
+  Future<String?> _getPlaceIdFromLatLng(LatLng position) async {
+    final url =
+        'https://maps.googleapis.com/maps/api/geocode/json?latlng=${position.latitude},${position.longitude}&key=$myApiKey';
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK' && data['results'].isNotEmpty) {
+          return data['results'][0]['place_id']; // Extract place_id
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching place_id: $e");
+    }
+
+    return null; // Return null if not found
+  }
+
   // ! update Stops info
   Future<void> _updateStopsInfo(dynamic route, List<dynamic> legs) async {
     List<Map<String, dynamic>> stops = [];
 
     for (int i = 0; i < legs.length; i++) {
-      String placeName = await _getPlaceName(_destinationPositions[i]);
+      // LatLng position = _destinationPositions[i];
+      // String? placeId = await _getPlaceIdFromLatLng(position); // Fetch place_id
+      // String placeName;
+
+      // if (placeId != null && placeId.isNotEmpty) {
+      //   placeName = await _getPlaceNameFromPlaceId(placeId);
+      // } else {
+      String placeName = await _getPlaceName(
+          _destinationPositions[i]); // Fallback to reverse geocoding
+      // }
 
       stops.add({
         'stopNo': "Stop ${i + 1}",
@@ -593,6 +625,26 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     return (_stopsInfo.length > 1) ? true : false;
   }
 
+  Future<String> _getPlaceNameFromPlaceId(String placeId) async {
+    final url =
+        'https://maps.googleapis.com/maps/api/place/details/json?place_id=$placeId&key=$myApiKey';
+
+    try {
+      final response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body);
+        if (data['status'] == 'OK') {
+          return data['result']
+              ['name']; // This gives the actual name used in predictions
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching place name: $e");
+    }
+
+    return "Unknown Location"; // Default if API fails
+  }
+
   Future<String> _getPlaceName(LatLng position) async {
     final url =
         'https://maps.googleapis.com/maps/api/geocode/json?latlng=${position.latitude},${position.longitude}&key=$myApiKey';
@@ -603,20 +655,22 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         final data = json.decode(response.body);
         if (data['status'] == 'OK' && data['results'].isNotEmpty) {
           debugPrint("myDebug fetching stops name ${data['results'][0]}");
+          debugPrint(
+              "myDebug fetching stops name ${data['results'][0]['address_components']}");
 
           // Extract short name from address components
-          for (var component in data['results'][0]['address_components']) {
-            if (component['types'].contains('locality')) {
-              return component[
-                  'short_name']; // Short name (e.g., "NYC" instead of "New York City")
-            }
-            if (component['types'].contains('sublocality')) {
-              return component['short_name']; // More specific short name
-            }
-            if (component['types'].contains('administrative_area_level_1')) {
-              return component['short_name']; // State/province short name
-            }
-          }
+          // for (var component in data['results'][0]['address_components']) {
+          //   if (component['types'].contains('locality')) {
+          //     return component[
+          //         'short_name']; // Short name (e.g., "NYC" instead of "New York City")
+          //   }
+          //   if (component['types'].contains('sublocality')) {
+          //     return component['short_name']; // More specific short name
+          //   }
+          //   if (component['types'].contains('administrative_area_level_1')) {
+          //     return component['short_name']; // State/province short name
+          //   }
+          // }
 
           // Fallback: If no short name found, return formatted address
           return data['results'][0]['formatted_address'];
@@ -928,6 +982,33 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     };
   }
 
+// Check if user is logged in
+  void _checkUserStatus() {
+    setState(() {
+      _user = FirebaseAuth.instance.currentUser;
+    });
+  }
+
+  void _logout(BuildContext context) async {
+    try {
+      await FirebaseAuth.instance.signOut();
+      setState(() {
+        _user = null; // Update UI after logout
+      });
+      // Navigate to the login or onboarding screen after logout
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+            builder: (context) =>
+                SignUpScreen()), // Replace with your login screen
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Logout failed: ${e.toString()}')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     try {
@@ -971,133 +1052,283 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             }
           },
           child: Scaffold(
-            resizeToAvoidBottomInset: false,
-            body: isLoading
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        SpinKitFadingCircle(
-                          color: AppColors.primary,
-                          size: 50.0.sp,
-                        ),
-                        SizedBox(height: 20.sp),
-                        Text(
-                          "Loading Maps...",
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w500,
-                            color: AppColors.primaryText,
-                            fontSize: 14.sp,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : hasLocationPermission
-                    ? Stack(
+              resizeToAvoidBottomInset: false,
+              body: isLoading
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          GestureDetector(
-                            onTap: () async {
-                              //  await _checkLocationPermission();
-                              // Unfocus to dismiss the keyboard
-                              FocusScope.of(context).unfocus();
-                            },
-                            child: GoogleMap(
-                              onMapCreated: _onMapCreated,
-                              compassEnabled: false,
-                              mapType: MapType.normal,
-                              initialCameraPosition: CameraPosition(
-                                target: _initialPosition,
-                                zoom: 14,
-                              ),
-                              markers: _getMarkers(),
-                              // markers: {
-                              //   if (_startingMarker != null) _startingMarker!,
-                              //   if (_destinationMarker != null) _destinationMarker!,
-                              // },
-                              polylines: _polylines,
-                              trafficEnabled: true,
+                          SpinKitFadingCircle(
+                            color: AppColors.primary,
+                            size: 50.0.sp,
+                          ),
+                          SizedBox(height: 20.sp),
+                          Text(
+                            "Loading Maps...",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              color: AppColors.primaryText,
+                              fontSize: 14.sp,
                             ),
                           ),
-                          IntrinsicHeight(
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(
-                                  vertical: 24, horizontal: 20),
-                              // color: Colors.amber,
-                              child: Column(
+                        ],
+                      ),
+                    )
+                  : hasLocationPermission
+                      ? Stack(
+                          children: [
+                            Container(
+                              height: MediaQuery.of(context).size.height,
+                              color: Colors.white,
+                              child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  if (!isJourneyStarted) searchTextFieldCard(),
                                   SizedBox(
-                                    height: 10.h,
+                                    width: 15.w,
                                   ),
-                                  if (showBottomSheet)
-                                    _startPositionCard(
-                                        "From: ", "Your Location"),
-                                  if (showBottomSheet)
-                                    _stopPositionCard("To: "),
+                                  Image.asset(
+                                    'assets/app_icon.png',
+                                    width: 60,
+                                  ),
                                   SizedBox(
-                                    height: 10.h,
+                                    width: 10.w,
                                   ),
-                                  Align(
-                                      alignment: Alignment
-                                          .centerRight, // Align to the right side
-                                      child: GestureDetector(
-                                        onTap: () async {
-                                          //    await _checkLocationPermission();
-                                          _moveToUserLocation();
-                                        },
-                                        child: Image.asset(
-                                          'assets/ic_current_location.png',
-                                          height: 45.h,
-                                        ),
-                                      ))
+                                  Padding(
+                                    padding: EdgeInsets.only(top: 15.h),
+                                    child: Text(
+                                      "Value Maps",
+                                      style: TextStyle(
+                                          fontSize: 20.sp,
+                                          color: AppColors.primaryText,
+                                          fontWeight: FontWeight.w500),
+                                    ),
+                                  ),
+                                  Spacer(),
+                                  _user != null
+                                      ? Padding(
+                                          padding: EdgeInsets.only(
+                                              right: 15.w, top: 10.w),
+                                          child: InkWell(
+                                              onTap: () {
+                                                _logout(context);
+                                              },
+                                              child: Image.asset(
+                                                'assets/ic_logout.png',
+                                                height: 34.h,
+                                                width: 34.w,
+                                              )),
+                                        )
+                                      : SizedBox()
                                 ],
                               ),
                             ),
-                          ),
-                          _predictions.isNotEmpty
-                              ? Container(
-                                  margin: EdgeInsets.symmetric(
-                                      horizontal: 30.w, vertical: 90.h),
-                                  decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.only(
-                                          bottomLeft: Radius.circular(20.r),
-                                          bottomRight: Radius.circular(20.r))),
-                                  child: ListView.builder(
-                                    shrinkWrap: true,
-                                    itemCount: _predictions.length,
-                                    itemBuilder: (context, index) {
-                                      final prediction = _predictions[index];
-                                      return ListTile(
-                                        leading: Icon(
-                                          Icons.location_on,
-                                          color: AppColors.primary,
+                            Padding(
+                              padding: EdgeInsets.only(top: 60.h),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.only(
+                                  topLeft: Radius.circular(
+                                      28.r), // Adjust for desired roundness
+                                  topRight: Radius.circular(28.r),
+                                ),
+                                child: Stack(
+                                  children: [
+                                    GestureDetector(
+                                      onTap: () async {
+                                        //  await _checkLocationPermission();
+                                        // Unfocus to dismiss the keyboard
+                                        FocusScope.of(context).unfocus();
+                                      },
+                                      child: GoogleMap(
+                                        onMapCreated: _onMapCreated,
+                                        zoomControlsEnabled: false,
+                                        compassEnabled: false,
+                                        mapType: MapType.normal,
+                                        initialCameraPosition: CameraPosition(
+                                          target: _initialPosition,
+                                          zoom: 14,
                                         ),
-                                        title:
-                                            Text(prediction.description ?? ''),
-                                        onTap: () async {
-                                          //   await _checkLocationPermission();
-                                          // _searchController.text = prediction
-                                          //         .structuredFormatting?.mainText ??
-                                          //     _searchController.text;
-                                          _searchController.text = '';
-                                          _selectCity(prediction);
-                                        },
-                                      );
-                                    },
-                                  ),
-                                )
-                              : SizedBox(),
-                        ],
-                      )
-                    : locationPermissionWidget(),
-            // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
-            bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
-            // bottomSheet: _buildStopsList(),
-          ),
+                                        markers: _getMarkers(),
+                                        // markers: {
+                                        //   if (_startingMarker != null) _startingMarker!,
+                                        //   if (_destinationMarker != null) _destinationMarker!,
+                                        // },
+                                        polylines: _polylines,
+                                        trafficEnabled: true,
+                                      ),
+                                    ),
+                                    IntrinsicHeight(
+                                      child: Container(
+                                        margin: EdgeInsets.symmetric(
+                                            vertical: 10.h, horizontal: 15.w),
+                                        // color: Colors.amber,
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            if (!isJourneyStarted)
+                                              searchTextFieldCard(),
+                                            if (!isJourneyStarted)
+                                              SizedBox(
+                                                height: 10.h,
+                                              ),
+                                            // if (showBottomSheet)
+                                            //   _startPositionCard(
+                                            //       "From: ", "Your Location"),
+                                            if (showBottomSheet)
+                                              _stopPositionCard(
+                                                  "Destination: "),
+                                            SizedBox(
+                                              height: 10.h,
+                                            ),
+                                            Align(
+                                                alignment: Alignment
+                                                    .centerRight, // Align to the right side
+                                                child: GestureDetector(
+                                                  onTap: () async {
+                                                    //    await _checkLocationPermission();
+                                                    _moveToUserLocation();
+                                                  },
+                                                  child: Image.asset(
+                                                    'assets/ic_current_location.png',
+                                                    height: 45.h,
+                                                  ),
+                                                ))
+                                          ],
+                                        ),
+                                      ),
+                                    ),
+                                    _predictions.isNotEmpty
+                                        ? Container(
+                                            margin: EdgeInsets.symmetric(
+                                                horizontal: 30.w,
+                                                vertical: 65.h),
+                                            decoration: BoxDecoration(
+                                                color: Colors.white,
+                                                borderRadius: BorderRadius.only(
+                                                    bottomLeft:
+                                                        Radius.circular(20.r),
+                                                    bottomRight:
+                                                        Radius.circular(20.r))),
+                                            child: ListView.builder(
+                                              shrinkWrap: true,
+                                              itemCount: _predictions.length,
+                                              itemBuilder: (context, index) {
+                                                final prediction =
+                                                    _predictions[index];
+                                                return ListTile(
+                                                  leading: Icon(
+                                                    Icons.location_on,
+                                                    color: AppColors.primary,
+                                                  ),
+                                                  title: Text(
+                                                      prediction.description ??
+                                                          ''),
+                                                  onTap: () async {
+                                                    //   await _checkLocationPermission();
+                                                    // _searchController.text = prediction
+                                                    //         .structuredFormatting?.mainText ??
+                                                    //     _searchController.text;
+                                                    _searchController.text = '';
+                                                    _selectCity(prediction);
+                                                  },
+                                                  // subtitle: Divider(
+                                                  //   color: AppColors.dividerGrey
+                                                  //       .withAlpha(100),
+                                                  //   thickness: 0.5,
+                                                  //   endIndent: 40,
+                                                  // ),
+                                                  // trailing: Text("Distance ${prediction.distanceMeters}"),
+                                                );
+                                              },
+                                            ),
+                                          )
+                                        : SizedBox(),
+                                    // Positioned(
+                                    //   bottom: 0,
+                                    //   child: Container(
+                                    //       width:
+                                    //           MediaQuery.of(context).size.width,
+                                    //       margin: EdgeInsets.symmetric(
+                                    //           horizontal: 30.w, vertical: 65.h),
+                                    //       decoration: BoxDecoration(
+                                    //           color: Colors.white,
+                                    //           borderRadius: BorderRadius.only(
+                                    //               bottomLeft:
+                                    //                   Radius.circular(20.r),
+                                    //               bottomRight:
+                                    //                   Radius.circular(20.r))),
+                                    //       child: Text("data")),
+                                    // )
+                                  ],
+                                ),
+                              ),
+                            ),
+                            if (!showBottomSheet)
+                              Positioned(
+                                bottom: 0,
+                                left: 0,
+                                right: 0,
+                                child: Column(
+                                  children: [
+                                    Image.asset(
+                                      'assets/mapbottom.png',
+                                      width: MediaQuery.of(context).size.width,
+                                      fit: BoxFit.cover,
+                                    ),
+                                    Container(height: 12.h, color: Colors.white,)
+                                  ],
+                                ),
+                              ),
+                          ],
+                        )
+                      : locationPermissionWidget(),
+              // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
+              bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox()
+              // : Container(
+              //     color: Colors.transparent, // Ensures full transparency
+              //     child: Image.asset(
+              //       'assets/mapbottom.png',
+              //       width: MediaQuery.of(context).size.width,
+              //       fit: BoxFit.cover,
+              //     ),
+              //   ),
+              // : IntrinsicHeight(
+              //     child: Stack(
+              //       children: [
+              //         Container(
+              //             height: 100,
+              //             width: MediaQuery.of(context).size.width,
+              //             decoration: BoxDecoration(
+              //               color: const Color.fromARGB(
+              //                   255, 101, 7, 216), // Background color
+              //               // borderRadius: BorderRadius.only(
+              //               //   topLeft: Radius.circular(30),
+              //               //   topRight: Radius.circular(30),
+              //               // ),
+              //             ),
+              //             child: Text("data")),
+              //         Padding(
+              //           padding: EdgeInsets.only(bottom: 30.h),
+              //           child: Container(
+              //               height: 50,
+              //               width: MediaQuery.of(context).size.width,
+              //               margin: EdgeInsets.only(bottom: 30.h),
+              //               decoration: BoxDecoration(
+              //                 color: const Color.fromARGB(
+              //                     255, 225, 23, 23), // Background color
+              //                 borderRadius: BorderRadius.only(
+              //                   bottomLeft: Radius.circular(30),
+              //                   bottomRight: Radius.circular(30),
+              //                 ),
+              //               ),
+              //               child: Text("Upper Lower")),
+              //         ),
+              //       ],
+              //     ),
+              //   ),
+              // bottomSheet: _buildStopsList(),
+              ),
         ),
       );
     } catch (e, stacktrace) {
@@ -1156,7 +1387,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
           ElevatedButton(
             onPressed: () async {
               await Geolocator.openAppSettings();
-              await Geolocator.openLocationSettings();
+              // await Geolocator.openLocationSettings();
               // _checkLocationPermission();
               _initializeApp();
             },
@@ -1317,7 +1548,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                           fontSize: 16.sp, color: AppColors.primaryText),
                     ),
             ),
-            SizedBox(height: 20.h),
+            // SizedBox(height: 10.h),
             // Transportation mode selection
           ],
         ),
@@ -1369,9 +1600,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                
                 Container(
                   height: 20.h,
+                  width: MediaQuery.of(context).size.width,
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -1387,10 +1618,10 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                       isJourneyStarted
                           ? SizedBox()
                           : IconButton(
-                            icon:
-                                Icon(Icons.remove_circle, color: Colors.red),
-                            onPressed: () => _removeStop(stop),
-                          ),
+                              icon:
+                                  Icon(Icons.remove_circle, color: Colors.red),
+                              onPressed: () => _removeStop(stop),
+                            ),
                     ],
                   ),
                 ),
@@ -1493,7 +1724,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                                 itemBuilder: (context, index) {
                                   String singleInstruction =
                                       stop['instructions'][index];
-                                  Icon leadingIcon = getLeadingIcon(singleInstruction);
+                                  Icon leadingIcon =
+                                      getLeadingIcon(singleInstruction);
                                   return ListTile(
                                     contentPadding: EdgeInsets.zero,
                                     leading: CircleAvatar(
@@ -1558,6 +1790,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     } else if (instruction.toLowerCase().contains("u-turn") &&
         instruction.toLowerCase().contains("right")) {
       return Icon(Icons.u_turn_right, color: AppColors.primaryGrey);
+    } else if (instruction.toLowerCase().contains("roundabout")) {
+      return Icon(Icons.radio_button_unchecked_sharp,
+          color: AppColors.primaryGrey);
     } else {
       return Icon(Icons.straight, color: AppColors.primaryGrey);
     }
@@ -1571,14 +1806,19 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         children: [
           Row(
             children: [
-              Text(
-                (_stopsInfo.isNotEmpty)
-                    ? _stopsInfo.last['name']
-                    : finalDestinationName,
-                style: TextStyle(
-                  fontSize: 20.sp,
-                  color: AppColors.primaryText,
-                  fontWeight: FontWeight.bold,
+              SizedBox(
+                width: MediaQuery.of(context).size.width / 1.3,
+                child: Text(
+                  (_stopsInfo.isNotEmpty)
+                      ? _stopsInfo.last['name']
+                      : finalDestinationName,
+                  style: TextStyle(
+                    fontSize: 18.sp,
+                    color: AppColors.primaryText,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               Spacer(),
@@ -1703,7 +1943,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                           itemBuilder: (context, index) {
                             String singleInstruction =
                                 navigationInstructions[index];
-                                 Icon leadingIcon = getLeadingIcon(singleInstruction);
+                            Icon leadingIcon =
+                                getLeadingIcon(singleInstruction);
                             return ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: AppColors.secondary,
@@ -1813,69 +2054,55 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   Widget _stopPositionCard(String title) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: EdgeInsets.only(left: 18.w),
-          child: Icon(
-            Icons.keyboard_double_arrow_down_rounded,
-            color: AppColors.primaryGrey,
-            size: 15.sp,
-          ),
-        ),
-        Container(
-          width: double.infinity,
-          height: 45.h,
-          // margin: EdgeInsets.symmetric(horizontal: 20.w),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(50),
-          ),
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 12.h),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.location_pin,
-                  color: Colors.red,
-                ),
-                SizedBox(
-                  width: 5.w,
-                ),
-                Text(
-                  title,
-                  style:
-                      TextStyle(color: AppColors.dividerGrey, fontSize: 12.sp),
-                ),
-                Expanded(
-                  child: (_stopsInfo.isNotEmpty)
-                      ? Text(
-                          _stopsInfo.last['name'],
-                          maxLines: 1,
-                          overflow: TextOverflow
-                              .ellipsis, // Adds "..." when text overflows
-                          style: TextStyle(
-                            color: AppColors.primaryGrey,
-                            fontSize: 14.sp,
-                          ),
-                        )
-                      : Text(
-                          finalDestinationName,
-                          maxLines: 1,
-                          overflow: TextOverflow
-                              .ellipsis, // Adds "..." when text overflows
-                          style: TextStyle(
-                            color: AppColors.primaryGrey,
-                            fontSize: 14.sp,
-                          ),
-                        ),
-                )
-              ],
+    return Container(
+      width: double.infinity,
+      height: 45.h,
+      // margin: EdgeInsets.symmetric(horizontal: 20.w),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(50),
+      ),
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 12.h),
+        child: Row(
+          children: [
+            Icon(
+              Icons.location_pin,
+              color: Colors.red,
             ),
-          ),
+            SizedBox(
+              width: 5.w,
+            ),
+            Text(
+              title,
+              style: TextStyle(color: AppColors.dividerGrey, fontSize: 12.sp),
+            ),
+            Expanded(
+              child: (_stopsInfo.isNotEmpty)
+                  ? Text(
+                      _stopsInfo.last['name'],
+                      maxLines: 1,
+                      overflow: TextOverflow
+                          .ellipsis, // Adds "..." when text overflows
+                      style: TextStyle(
+                        color: AppColors.primaryGrey,
+                        fontSize: 14.sp,
+                      ),
+                    )
+                  : Text(
+                      finalDestinationName,
+                      maxLines: 1,
+                      overflow: TextOverflow
+                          .ellipsis, // Adds "..." when text overflows
+                      style: TextStyle(
+                        color: AppColors.primaryGrey,
+                        fontSize: 14.sp,
+                      ),
+                    ),
+            )
+          ],
         ),
-      ],
+      ),
     );
   }
 
