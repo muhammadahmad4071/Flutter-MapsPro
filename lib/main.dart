@@ -19,7 +19,7 @@ void main() async {
   ]);
 
   runApp(MyApp());
-}
+} 
 
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
@@ -30,7 +30,7 @@ class MyApp extends StatefulWidget {
 
 class _MyAppState extends State<MyApp> {
   Future<bool>? _userStatusFuture;
-  bool _isSplashVisible = true; // Track if splash screen should be visible
+  bool _isSplashVisible = true; // Track if  splash screen should be visible
   bool hasSeenOnboarding = false;
 
   @override

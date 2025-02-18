@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import 'package:connectivity_plus/connectivity_plus.dart';
+// import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -32,22 +32,22 @@ class _SignUpScreenState extends State<SignUpScreen> {
   bool _isLoading = false;
 
   bool isInternetConnected = true;
-  List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
-  final Connectivity _connectivity = Connectivity();
-  late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+  // List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
+  // final Connectivity _connectivity = Connectivity();
+  // late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
 
   @override
   void initState() {
     super.initState();
-    initConnectivity();
-    _connectivitySubscription =
-        _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
+    // initConnectivity();
+    // _connectivitySubscription =
+    //     _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
     _initializeFirebase();
   }
 
   @override
   void dispose() {
-    _connectivitySubscription.cancel();
+    // _connectivitySubscription.cancel();
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -55,33 +55,33 @@ class _SignUpScreenState extends State<SignUpScreen> {
     super.dispose();
   }
 
-  Future<void> initConnectivity() async {
-    List<ConnectivityResult> result;
+  // Future<void> initConnectivity() async {
+  //   List<ConnectivityResult> result;
 
-    try {
-      result = await _connectivity.checkConnectivity();
-    } on PlatformException catch (e) {
-      print("Connectivity error: $e");
-      return;
-    }
+  //   try {
+  //     result = await _connectivity.checkConnectivity();
+  //   } on PlatformException catch (e) {
+  //     print("Connectivity error: $e");
+  //     return;
+  //   }
 
-    // Update the UI based on the connectivity result
-    if (!mounted) return;
+  //   // Update the UI based on the connectivity result
+  //   if (!mounted) return;
 
-    _updateConnectionStatus(result);
-  }
+  //   _updateConnectionStatus(result);
+  // }
 
-  Future<void> _updateConnectionStatus(List<ConnectivityResult> result) async {
-    setState(() {
-      _connectionStatus = result;
+  // Future<void> _updateConnectionStatus(List<ConnectivityResult> result) async {
+  //   setState(() {
+  //     _connectionStatus = result;
 
-      // Check if any connectivity result is either wifi or mobile
-      isInternetConnected = result.contains(ConnectivityResult.wifi) ||
-          result.contains(ConnectivityResult.mobile);
-    });
+  //     // Check if any connectivity result is either wifi or mobile
+  //     isInternetConnected = result.contains(ConnectivityResult.wifi) ||
+  //         result.contains(ConnectivityResult.mobile);
+  //   });
 
-    print('Connectivity changed: $_connectionStatus bool $isInternetConnected');
-  }
+  //   print('Connectivity changed: $_connectionStatus bool $isInternetConnected');
+  // }
 
   Future<void> _initializeFirebase() async {
     final FirebaseApp app = await Firebase.initializeApp();

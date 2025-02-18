@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:connectivity_plus/connectivity_plus.dart';
+// import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -67,9 +67,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   // String destinationText = "N/A";
   // Position? userCurrentPosition;
   // Connectivity
-  final Connectivity _connectivity = Connectivity();
-  List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
-  late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
+  // final Connectivity _connectivity = Connectivity();
+  // List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
+  // late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
 
   final loc.Location _location = loc.Location();
   late StreamSubscription<loc.LocationData> _locationSubscription;
@@ -84,9 +84,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     super.initState();
     _checkUserStatus();
     _initializeApp();
-    initConnectivity();
-    _connectivitySubscription =
-        _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
+    // initConnectivity();
+    // _connectivitySubscription =
+    //     _connectivity.onConnectivityChanged.listen(_updateConnectionStatus);
     // WidgetsBinding.instance.addObserver(this);
   }
 
@@ -94,7 +94,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   void dispose() {
     // Don't forget to cancel the subscription when the widget is disposed
     _permissionCheckTimer?.cancel();
-    _connectivitySubscription.cancel();
+    // _connectivitySubscription.cancel();
     // WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -106,34 +106,34 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 //   }
 // }
 
-  Future<void> initConnectivity() async {
-    List<ConnectivityResult> result;
+  // Future<void> initConnectivity() async {
+  //   List<ConnectivityResult> result;
 
-    try {
-      result = await _connectivity.checkConnectivity();
-    } on PlatformException catch (e) {
-      print("Connectivity error: $e");
-      return;
-    }
+  //   try {
+  //     result = await _connectivity.checkConnectivity();
+  //   } on PlatformException catch (e) {
+  //     print("Connectivity error: $e");
+  //     return;
+  //   }
 
-    // Update the UI based on the connectivity result
-    if (!mounted) return;
+  //   // Update the UI based on the connectivity result
+  //   if (!mounted) return;
 
-    _updateConnectionStatus(result);
-  }
+  //   _updateConnectionStatus(result);
+  // }
 
-  Future<void> _updateConnectionStatus(List<ConnectivityResult> result) async {
-    setState(() {
-      _connectionStatus = result;
+  // Future<void> _updateConnectionStatus(List<ConnectivityResult> result) async {
+  //   setState(() {
+  //     _connectionStatus = result;
 
-      // Check if any connectivity result is either wifi or mobile
-      isInternetConnected = result.contains(ConnectivityResult.wifi) ||
-          result.contains(ConnectivityResult.mobile);
-    });
+  //     // Check if any connectivity result is either wifi or mobile
+  //     isInternetConnected = result.contains(ConnectivityResult.wifi) ||
+  //         result.contains(ConnectivityResult.mobile);
+  //   });
 
-    debugPrint(
-        'Connectivity changed: $_connectionStatus bool $isInternetConnected');
-  }
+  //   debugPrint(
+  //       'Connectivity changed: $_connectionStatus bool $isInternetConnected');
+  // }
 
   void _onMapCreated(GoogleMapController controller) {
     mapController = controller;
