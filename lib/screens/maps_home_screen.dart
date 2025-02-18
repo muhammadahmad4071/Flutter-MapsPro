@@ -1142,6 +1142,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                                       child: GoogleMap(
                                         onMapCreated: _onMapCreated,
                                         zoomControlsEnabled: false,
+                                        myLocationButtonEnabled: false,
+                                        myLocationEnabled: false,
                                         compassEnabled: false,
                                         mapType: MapType.normal,
                                         initialCameraPosition: CameraPosition(
