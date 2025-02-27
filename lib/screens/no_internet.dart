@@ -8,17 +8,31 @@ class NoInternetWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-    body: Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.wifi_off_rounded, size: 100, color: Colors.grey),
-           SizedBox(height: 16.h),
-           Text(
-            "Internet not connected",
-            style: TextStyle(fontSize: 18.sp, color: AppColors.primaryGrey, fontWeight: FontWeight.bold),
+      backgroundColor: Colors.black,
+    body: SafeArea(
+      child: Container(
+          margin: EdgeInsets.only(bottom: 10.h),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                   borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(
+                                    28.r), // Adjust for desired roundness
+                                topRight: Radius.circular(28.r),
+                                bottomLeft: Radius.circular(28.r),
+                                bottomRight: Radius.circular(28.r),),),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.wifi_off_rounded, size: 100, color: Colors.grey),
+               SizedBox(height: 16.h),
+               Text(
+                "Internet not connected",
+                style: TextStyle(fontSize: 18.sp, color: AppColors.primaryGrey, fontWeight: FontWeight.bold),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     ),
   );

@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
+
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
   ]);
@@ -41,7 +42,8 @@ class _MyAppState extends State<MyApp> {
     Timer(Duration(seconds: 3), () {
       setState(() {
         _isSplashVisible = false;
-        _userStatusFuture = _checkUserStatus(); // Load user status after splash
+        // Uncomment to implement signin onboard and signup
+        // _userStatusFuture = _checkUserStatus(); // Load user status after splash
       });
     });
   }
@@ -49,6 +51,7 @@ class _MyAppState extends State<MyApp> {
   // Check if the user is logged in and if they have seen the onboarding screen
   Future<bool> _checkUserStatus() async {
     try {
+    
       SharedPreferences prefs = await SharedPreferences.getInstance();
       hasSeenOnboarding = prefs.getBool('onboarding_seen') ?? false;
       debugPrint("myDebug test hasSeenOnboarding: $hasSeenOnboarding");
@@ -95,43 +98,60 @@ class _MyAppState extends State<MyApp> {
           ),
           home: _isSplashVisible
               ? _buildSplashScreen() // Show splash screen first
-              : FutureBuilder<bool>(
-                  future: _userStatusFuture,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return _buildSplashScreen();
-                    } else if (snapshot.hasError ||
-                        !snapshot.hasData ||
-                        !snapshot.data!) {
-                      return hasSeenOnboarding ? SignUpScreen() : OnBoardScreen();
-                    } else {
-                      return MapsHomeScreen();
-                    }
-                  },
-                ),
+              : MapsHomeScreen()
+              // Uncomment to implement signin onboard and signup
+              // FutureBuilder<bool>(
+              //     future: _userStatusFuture,
+              //     builder: (context, snapshot) {
+              //       if (snapshot.connectionState == ConnectionState.waiting) {
+              //         return _buildSplashScreen();
+              //       } else if (snapshot.hasError ||
+              //           !snapshot.hasData ||
+              //           !snapshot.data!) {
+              //         return hasSeenOnboarding
+              //             ? SignUpScreen()
+              //             : OnBoardScreen();
+              //       } else {
+              //         return MapsHomeScreen();
+              //       }
+              //     },
+              //   ),
         );
       },
     );
   }
 
   // Splash Screen Widget
+  
   Widget _buildSplashScreen() {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Image.asset(
-              'assets/logo.png', // Replace with your logo
-              height: 120.h,
+      backgroundColor: const Color.fromARGB(255, 0, 0, 0),
+      body: SafeArea(
+        child: Container(
+          margin: EdgeInsets.only(bottom: 10.h),
+          decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.only(
+                              topLeft: Radius.circular(
+                                  28.r), // Adjust for desired roundness
+                              topRight: Radius.circular(28.r),
+                              bottomLeft: Radius.circular(28.r),
+                              bottomRight: Radius.circular(28.r),
+                            ),),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  'assets/logo.png', // Replace with your logo
+                  height: 120.h,
+                ),
+                SizedBox(height: 100.h),
+                SpinKitFadingCircle(
+                  color: AppColors.primary,
+                  size: 50.0.sp,
+                ),
+              ],
             ),
-            SizedBox(height: 100.h),
-            SpinKitFadingCircle(
-              color: AppColors.primary,
-              size: 50.0.sp,
-            ),
-          ],
+          ),
         ),
       ),
     );

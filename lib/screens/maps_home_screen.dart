@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_spinkit/flutter_spinkit.dart';
+import 'package:fluttertoast/fluttertoast.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_webservice/places.dart';
@@ -14,7 +15,7 @@ import 'package:maps/screens/no_internet.dart';
 import 'package:maps/screens/signup_screen.dart';
 import 'package:maps/util/app_colors.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
-import 'package:google_maps_webservice/directions.dart' as gmaps;
+// import 'package:google_maps_webservice/directions.dart' as gmaps;
 import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
 import 'package:location/location.dart' as loc;
 
@@ -75,6 +76,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   late StreamSubscription<loc.LocationData> _locationSubscription;
   List<LatLng> selectedRoutePoints = [];
   Timer? _permissionCheckTimer;
+  bool _isRequestingPermission = false;
   User? _user;
 
   bool containTolls = false;
@@ -92,10 +94,12 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   @override
   void dispose() {
-    // Don't forget to cancel the subscription when the widget is disposed
     _permissionCheckTimer?.cancel();
-    _connectivitySubscription.cancel();
-    // WidgetsBinding.instance.removeObserver(this);
+    _connectivitySubscription.cancel(); // No need to check for null
+    _locationSubscription.cancel(); // No need to check for null
+
+    debugPrint("dispose() called, subscriptions canceled.");
+
     super.dispose();
   }
 
@@ -179,11 +183,19 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   Future<bool> _checkLocationPermission() async {
-    try {
-      loc.PermissionStatus permissionStatus =
-          await _location.requestPermission();
+    if (_isRequestingPermission) return false;
+    _isRequestingPermission = true;
 
-      if (permissionStatus == loc.PermissionStatus.granted) {
+    try {
+      loc.PermissionStatus currentStatus = await _location.hasPermission();
+
+      if (currentStatus == loc.PermissionStatus.granted) {
+        return true; // Permission is already granted
+      }
+
+      // Request permission only if not granted
+      loc.PermissionStatus newStatus = await _location.requestPermission();
+      if (newStatus == loc.PermissionStatus.granted) {
         final locationData = await _location.getLocation();
         if (locationData.latitude == null || locationData.longitude == null) {
           throw Exception("Failed to fetch location after permission grant.");
@@ -208,6 +220,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         hasLocationPermission = false;
       });
       return false;
+    } finally {
+      _isRequestingPermission = false;
     }
   }
 
@@ -435,12 +449,23 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
+  // SortedDestinations
   Future<void> _fetchAndDrawRoutes({LatLng? currentPosition}) async {
     try {
       final origin = currentPosition ?? _initialPosition;
       if (origin == null || _destinationPositions.isEmpty) {
         throw Exception("Current or destination position is not set.");
       }
+
+      // List<LatLng> sortedDestinations = List.from(_destinationPositions);
+
+      // if (isJourneyStarted) {
+      _destinationPositions.sort((a, b) {
+        double distanceA = _calculateDistance(origin, a);
+        double distanceB = _calculateDistance(origin, b);
+        return distanceA.compareTo(distanceB);
+      });
+      // }
 
       String waypoints = _destinationPositions
           .sublist(0, _destinationPositions.length - 1) // All except last
@@ -466,9 +491,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
           double totalDistance = 0;
           double totalDuration = 0;
           bool containTolls = false;
-          // List<String> instructionsList = [];
 
-          // Check warnings for toll roads
           if (route['warnings'] != null) {
             debugPrint("myDebug toll Warning Response: ${route['warnings']}");
             for (var warning in route['warnings']) {
@@ -479,7 +502,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             }
           }
 
-          // Check if any leg contains a toll road
           for (var leg in legs) {
             totalDistance += leg['distance']['value'];
             totalDuration += leg['duration']['value'];
@@ -494,19 +516,18 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
               if (instruction.toLowerCase().contains("toll road")) {
                 legContainsToll = true;
-                containTolls = true; // If any leg has toll, the route has tolls
+                containTolls = true;
               }
             }
 
-            leg['instructions'] =
-                instructionsList; // Store instructions for each stop
-            leg['hasToll'] = legContainsToll; // Store toll info for this leg
+            leg['instructions'] = instructionsList;
+            leg['hasToll'] = legContainsToll;
           }
 
+          if (!mounted) return;
           setState(() {
             distanceText = "${(totalDistance / 1000).toStringAsFixed(1)} km";
             durationText = "${(totalDuration / 60).toStringAsFixed(0)} min";
-            // navigationInstructions = instructionsList;
             _polylines.clear();
           });
 
@@ -529,6 +550,114 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       });
     }
   }
+
+  // double _calculateDistance(LatLng point1, LatLng point2) {
+  //   var p = 0.017453292519943295;
+  //   var a = 0.5 -
+  //       cos((point2.latitude - point1.latitude) * p) / 2 +
+  //       cos(point1.latitude * p) *
+  //           cos(point2.latitude * p) *
+  //           (1 - cos((point2.longitude - point1.longitude) * p)) /
+  //           2;
+  //   return 12742 * asin(sqrt(a));
+  // }
+
+  // Future<void> _fetchAndDrawRoutes({LatLng? currentPosition}) async {
+  //   try {
+  //     final origin = currentPosition ?? _initialPosition;
+  //     if (origin == null || _destinationPositions.isEmpty) {
+  //       throw Exception("Current or destination position is not set.");
+  //     }
+
+  //     String waypoints = _destinationPositions
+  //         .sublist(0, _destinationPositions.length - 1) // All except last
+  //         .map((latLng) => '${latLng.latitude},${latLng.longitude}')
+  //         .join('|');
+  //     debugPrint('myDebug WayPoints added: $waypoints');
+
+  //     final finalDestination = _destinationPositions.last;
+
+  //     final directionsUrl =
+  //         'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${finalDestination.latitude},${finalDestination.longitude}&waypoints=$waypoints&mode=$_selectedMode&alternatives=true&key=$myApiKey';
+
+  //     debugPrint("my Debug Fetching routes: $directionsUrl");
+  //     final response = await http.get(Uri.parse(directionsUrl));
+
+  //     if (response.statusCode == 200) {
+  //       final data = json.decode(response.body);
+
+  //       if (data['routes'] != null && data['routes'].isNotEmpty) {
+  //         debugPrint('Fetched Routes response: ${data}');
+  //         final route = data['routes'][0];
+  //         final legs = route['legs'];
+
+  //         double totalDistance = 0;
+  //         double totalDuration = 0;
+  //         bool containTolls = false;
+  //         // List<String> instructionsList = [];
+
+  //         // Check warnings for toll roads
+  //         if (route['warnings'] != null) {
+  //           debugPrint("myDebug toll Warning Response: ${route['warnings']}");
+  //           for (var warning in route['warnings']) {
+  //             if (warning.toString().toLowerCase().contains("toll road")) {
+  //               containTolls = true;
+  //               break;
+  //             }
+  //           }
+  //         }
+
+  //         // Check if any leg contains a toll road
+  //         for (var leg in legs) {
+  //           totalDistance += leg['distance']['value'];
+  //           totalDuration += leg['duration']['value'];
+
+  //           List<String> instructionsList = [];
+  //           bool legContainsToll = false;
+
+  //           for (var step in leg['steps']) {
+  //             String instruction =
+  //                 step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
+  //             instructionsList.add(instruction);
+
+  //             if (instruction.toLowerCase().contains("toll road")) {
+  //               legContainsToll = true;
+  //               containTolls = true; // If any leg has toll, the route has tolls
+  //             }
+  //           }
+
+  //           leg['instructions'] =
+  //               instructionsList; // Store instructions for each stop
+  //           leg['hasToll'] = legContainsToll; // Store toll info for this leg
+  //         }
+
+  //         if (!mounted) return;
+  //         setState(() {
+  //           distanceText = "${(totalDistance / 1000).toStringAsFixed(1)} km";
+  //           durationText = "${(totalDuration / 60).toStringAsFixed(0)} min";
+  //           // navigationInstructions = instructionsList;
+  //           _polylines.clear();
+  //         });
+
+  //         await _drawPolylines(data['routes']);
+  //         _updateStopsInfo(route, legs);
+  //       } else {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(content: Text("No routes found.")),
+  //         );
+  //         debugPrint("No routes found.");
+  //       }
+  //     } else {
+  //       throw Exception('Failed to load directions: ${response.statusCode}');
+  //     }
+  //   } catch (e) {
+  //     debugPrint('Error fetching directions: $e');
+  //     setState(() {
+  //       distanceText = 'N/A';
+  //       durationText = 'N/A';
+  //     });
+  //   }
+  // }
 
   // _directionInstruction(dynamic leg) {
   //   // Extract turn-by-turn instructions
@@ -860,6 +989,22 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         final currentLocation =
             LatLng(locationData.latitude!, locationData.longitude!);
 
+        // **Check if the user has reached any stop**
+        for (var stop in List.from(_stopsInfo)) {
+          if (hasReachedDestination(currentLocation, stop['location'])) {
+            debugPrint("myDebug User reached: ${stop['name']}");
+            await _removeStop(stop);
+            Fluttertoast.showToast(
+              msg: "Reached ${stop['name']}",
+              toastLength: Toast.LENGTH_SHORT,
+              gravity: ToastGravity.BOTTOM,
+              backgroundColor: AppColors.primary,
+              textColor: AppColors.primaryText,
+            );
+            break; // Ensure only one stop is removed at a time
+          }
+        }
+
         // Check if the destination is reached
         if (hasReachedDestination(currentLocation, getLastDestination())) {
           _onReachedDestination();
@@ -992,20 +1137,33 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   void _logout(BuildContext context) async {
     try {
       await FirebaseAuth.instance.signOut();
-      setState(() {
-        _user = null; // Update UI after logout
-      });
-      // Navigate to the login or onboarding screen after logout
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-            builder: (context) =>
-                SignUpScreen()), // Replace with your login screen
-      );
+
+      if (mounted) {
+        setState(() {
+          _user = null; // Update UI after logout
+        });
+      }
+
+      // Cancel location subscription only if widget is still active
+      if (mounted) {
+        _locationSubscription.cancel();
+      }
+
+      debugPrint("User logged out, location subscription canceled.");
+
+      // Navigate to login screen
+      if (mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => SignUpScreen()),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Logout failed: ${e.toString()}')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Logout failed: ${e.toString()}')),
+        );
+      }
     }
   }
 
@@ -1020,317 +1178,387 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       //   return locationPermissionWidget();
       // }
 
-      return SafeArea(
-        child: PopScope(
-          canPop: false, // Prevent default back button behavior
-          onPopInvoked: (bool didPop) async {
-            if (didPop) return;
-            // Show exit confirmation dialog
-            final shouldExit = await showDialog<bool>(
-              context: context,
-              builder: (BuildContext context) {
-                return AlertDialog(
-                  title: const Text('Exit App'),
-                  content: const Text('Do you want to exit the application?'),
-                  actions: <Widget>[
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, false),
-                      child: const Text('Cancel'),
-                    ),
-                    TextButton(
-                      onPressed: () => Navigator.pop(context, true),
-                      child: const Text('Exit'),
-                    ),
-                  ],
-                );
-              },
-            );
+      return PopScope(
+        canPop: false, // Prevent default back button behavior
+        onPopInvoked: (bool didPop) async {
+          if (didPop) return;
+          // Show exit confirmation dialog
+          final shouldExit = await showDialog<bool>(
+            context: context,
+            builder: (BuildContext context) {
+              return AlertDialog(
+                title: const Text('Exit App'),
+                content: const Text('Do you want to exit the application?'),
+                actions: <Widget>[
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Exit'),
+                  ),
+                ],
+              );
+            },
+          );
 
-            // Exit if user confirms
-            if (shouldExit == true) {
-              SystemNavigator.pop();
-            }
-          },
-          child: Scaffold(
-              resizeToAvoidBottomInset: false,
-              body: isLoading
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          SpinKitFadingCircle(
-                            color: AppColors.primary,
-                            size: 50.0.sp,
+          // Exit if user confirms
+          if (shouldExit == true) {
+            SystemNavigator.pop();
+          }
+        },
+        child: Scaffold(
+          resizeToAvoidBottomInset: false,
+          backgroundColor: Colors.black,
+          body: SafeArea(
+            child: isLoading
+                ? Container(
+                    margin: EdgeInsets.only(bottom: 10.h),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.only(
+                        topLeft: Radius.circular(
+                            28.r), // Adjust for desired roundness
+                        topRight: Radius.circular(28.r),
+                        bottomLeft: Radius.circular(28.r),
+                        bottomRight: Radius.circular(28.r),
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SpinKitFadingCircle(
+                          color: AppColors.primary,
+                          size: 50.0.sp,
+                        ),
+                        SizedBox(height: 20.sp),
+                        Text(
+                          "Loading Maps...",
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.primaryText,
+                            fontSize: 14.sp,
                           ),
-                          SizedBox(height: 20.sp),
-                          Text(
-                            "Loading Maps...",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w500,
-                              color: AppColors.primaryText,
-                              fontSize: 14.sp,
+                        ),
+                      ],
+                    ),
+                  )
+                : hasLocationPermission
+                    ? Stack(
+                        children: [
+                          Container(
+                            margin: EdgeInsets.only(bottom: 10.h),
+                            height: MediaQuery.of(context).size.height,
+                            decoration: BoxDecoration(
+                              color: const Color.fromARGB(255, 255, 255, 255),
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(
+                                    28.r), // Adjust for desired roundness
+                                topRight: Radius.circular(28.r),
+                                bottomLeft: Radius.circular(28.r),
+                                bottomRight: Radius.circular(28.r),
+                              ),
+                            ),
+                            // margin: EdgeInsets.only(top: 34.h, bottom: 34.h),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                  width: 15.w,
+                                ),
+                                Image.asset(
+                                  'assets/app_icon.png',
+                                  width: 55.h,
+                                  height: 60.h,
+                                ),
+                                SizedBox(
+                                  width: 10.w,
+                                ),
+                                Padding(
+                                  padding: EdgeInsets.only(top: 15.h),
+                                  child: Text(
+                                    "Value Maps",
+                                    style: TextStyle(
+                                        fontSize: 20.sp,
+                                        color: AppColors.primaryText,
+                                        fontWeight: FontWeight.w500),
+                                  ),
+                                ),
+                                Spacer(),
+                                _user != null
+                                    ? Padding(
+                                        padding: EdgeInsets.only(
+                                            right: 15.w, top: 10.w),
+                                        child: InkWell(
+                                            onTap: () {
+                                              _logout(context);
+                                            },
+                                            child: Image.asset(
+                                              'assets/ic_logout.png',
+                                              height: 34.h,
+                                              width: 34.w,
+                                            )),
+                                      )
+                                    : SizedBox()
+                              ],
                             ),
                           ),
-                        ],
-                      ),
-                    )
-                  : hasLocationPermission
-                      ? Stack(
-                          children: [
-                            Container(
-                              height: MediaQuery.of(context).size.height,
-                              color: Colors.white,
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                          Padding(
+                            padding: EdgeInsets.only(top: 50.h, bottom: 34.h),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.only(
+                                topLeft: Radius.circular(
+                                    28.r), // Adjust for desired roundness
+                                topRight: Radius.circular(28.r),
+                              ),
+                              child: Stack(
                                 children: [
-                                  SizedBox(
-                                    width: 15.w,
-                                  ),
-                                  Image.asset(
-                                    'assets/app_icon.png',
-                                    width: 60,
-                                  ),
-                                  SizedBox(
-                                    width: 10.w,
-                                  ),
-                                  Padding(
-                                    padding: EdgeInsets.only(top: 15.h),
-                                    child: Text(
-                                      "Value Maps",
-                                      style: TextStyle(
-                                          fontSize: 20.sp,
-                                          color: AppColors.primaryText,
-                                          fontWeight: FontWeight.w500),
+                                  GestureDetector(
+                                    onTap: () async {
+                                      //  await _checkLocationPermission();
+                                      // Unfocus to dismiss the keyboard
+                                      FocusScope.of(context).unfocus();
+                                    },
+                                    child: GoogleMap(
+                                      onMapCreated: _onMapCreated,
+                                      zoomControlsEnabled: false,
+                                      myLocationButtonEnabled: false,
+                                      myLocationEnabled: false,
+                                      compassEnabled: false,
+                                      mapType: MapType.normal,
+                                      initialCameraPosition: CameraPosition(
+                                        target: _initialPosition,
+                                        zoom: 14,
+                                      ),
+                                      markers: _getMarkers(),
+                                      // markers: {
+                                      //   if (_startingMarker != null) _startingMarker!,
+                                      //   if (_destinationMarker != null) _destinationMarker!,
+                                      // },
+                                      polylines: _polylines,
+                                      trafficEnabled: true,
                                     ),
                                   ),
-                                  Spacer(),
-                                  _user != null
-                                      ? Padding(
-                                          padding: EdgeInsets.only(
-                                              right: 15.w, top: 10.w),
-                                          child: InkWell(
-                                              onTap: () {
-                                                _logout(context);
-                                              },
-                                              child: Image.asset(
-                                                'assets/ic_logout.png',
-                                                height: 34.h,
-                                                width: 34.w,
-                                              )),
+                                  IntrinsicHeight(
+                                    child: Container(
+                                      margin: EdgeInsets.symmetric(
+                                          vertical: 8.h, horizontal: 15.w),
+                                      // color: Colors.amber,
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          // if (!isJourneyStarted)
+                                          searchTextFieldCard(),
+                                          // if (!isJourneyStarted)
+                                          SizedBox(
+                                            height: 8.h,
+                                          ),
+                                          // if (showBottomSheet)
+                                          //   _startPositionCard(
+                                          //       "From: ", "Your Location"),
+                                          if (showBottomSheet)
+                                            _stopPositionCard("Destination: "),
+                                          SizedBox(
+                                            height: 10.h,
+                                          ),
+                                          Align(
+                                              alignment: Alignment
+                                                  .centerRight, // Align to the right side
+                                              child: GestureDetector(
+                                                onTap: () async {
+                                                  //    await _checkLocationPermission();
+                                                  _moveToUserLocation();
+                                                },
+                                                child: Image.asset(
+                                                  'assets/ic_current_location.png',
+                                                  height: 45.h,
+                                                ),
+                                              ))
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                  _predictions.isNotEmpty
+                                      ? Container(
+                                          margin: EdgeInsets.symmetric(
+                                              horizontal: 30.w, vertical: 65.h),
+                                          decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius: BorderRadius.only(
+                                                  bottomLeft:
+                                                      Radius.circular(20.r),
+                                                  bottomRight:
+                                                      Radius.circular(20.r))),
+                                          child: ListView.builder(
+                                            shrinkWrap: true,
+                                            itemCount: _predictions.length,
+                                            itemBuilder: (context, index) {
+                                              final prediction =
+                                                  _predictions[index];
+                                              return ListTile(
+                                                leading: Icon(
+                                                  Icons.location_on,
+                                                  color: AppColors.primary,
+                                                ),
+                                                title: Text(
+                                                    prediction.description ??
+                                                        ''),
+                                                onTap: () async {
+                                                  //   await _checkLocationPermission();
+                                                  // _searchController.text = prediction
+                                                  //         .structuredFormatting?.mainText ??
+                                                  //     _searchController.text;
+                                                  _searchController.text = '';
+                                                  _selectCity(prediction);
+                                                },
+                                                // subtitle: Divider(
+                                                //   color: AppColors.dividerGrey
+                                                //       .withAlpha(100),
+                                                //   thickness: 0.5,
+                                                //   endIndent: 40,
+                                                // ),
+                                                // trailing: Text("Distance ${prediction.distanceMeters}"),
+                                              );
+                                            },
+                                          ),
                                         )
-                                      : SizedBox()
+                                      : SizedBox(),
                                 ],
                               ),
                             ),
-                            Padding(
-                              padding: EdgeInsets.only(top: 60.h),
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.only(
-                                  topLeft: Radius.circular(
-                                      28.r), // Adjust for desired roundness
-                                  topRight: Radius.circular(28.r),
-                                ),
-                                child: Stack(
+                          ),
+                          // if (!showBottomSheet)
+                          Positioned(
+                            bottom: 0.h,
+                            left: 0,
+                            right: 0,
+                            child: Column(
+                              children: [
+                                Stack(
                                   children: [
-                                    GestureDetector(
-                                      onTap: () async {
-                                        //  await _checkLocationPermission();
-                                        // Unfocus to dismiss the keyboard
-                                        FocusScope.of(context).unfocus();
-                                      },
-                                      child: GoogleMap(
-                                        onMapCreated: _onMapCreated,
-                                        zoomControlsEnabled: false,
-                                        myLocationButtonEnabled: false,
-                                        myLocationEnabled: false,
-                                        compassEnabled: false,
-                                        mapType: MapType.normal,
-                                        initialCameraPosition: CameraPosition(
-                                          target: _initialPosition,
-                                          zoom: 14,
-                                        ),
-                                        markers: _getMarkers(),
-                                        // markers: {
-                                        //   if (_startingMarker != null) _startingMarker!,
-                                        //   if (_destinationMarker != null) _destinationMarker!,
-                                        // },
-                                        polylines: _polylines,
-                                        trafficEnabled: true,
+                                    showBottomSheet
+                                        ? bottomSheetWidget()
+                                        : Image.asset(
+                                            'assets/mapbottom.png',
+                                            width: MediaQuery.of(context)
+                                                .size
+                                                .width,
+                                            fit: BoxFit.cover,
+                                          ),
+                                    Positioned(
+                                      bottom: 0,
+                                      child: Image.asset(
+                                        'assets/mapbottom.png',
+                                        width:
+                                            MediaQuery.of(context).size.width,
+                                        fit: BoxFit.cover,
                                       ),
                                     ),
-                                    IntrinsicHeight(
-                                      child: Container(
-                                        margin: EdgeInsets.symmetric(
-                                            vertical: 10.h, horizontal: 15.w),
-                                        // color: Colors.amber,
-                                        child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                            if (!isJourneyStarted)
-                                              searchTextFieldCard(),
-                                            if (!isJourneyStarted)
-                                              SizedBox(
-                                                height: 10.h,
-                                              ),
-                                            // if (showBottomSheet)
-                                            //   _startPositionCard(
-                                            //       "From: ", "Your Location"),
-                                            if (showBottomSheet)
-                                              _stopPositionCard(
-                                                  "Destination: "),
-                                            SizedBox(
-                                              height: 10.h,
-                                            ),
-                                            Align(
-                                                alignment: Alignment
-                                                    .centerRight, // Align to the right side
-                                                child: GestureDetector(
-                                                  onTap: () async {
-                                                    //    await _checkLocationPermission();
-                                                    _moveToUserLocation();
-                                                  },
-                                                  child: Image.asset(
-                                                    'assets/ic_current_location.png',
-                                                    height: 45.h,
-                                                  ),
-                                                ))
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                                    _predictions.isNotEmpty
-                                        ? Container(
-                                            margin: EdgeInsets.symmetric(
-                                                horizontal: 30.w,
-                                                vertical: 65.h),
-                                            decoration: BoxDecoration(
-                                                color: Colors.white,
-                                                borderRadius: BorderRadius.only(
-                                                    bottomLeft:
-                                                        Radius.circular(20.r),
-                                                    bottomRight:
-                                                        Radius.circular(20.r))),
-                                            child: ListView.builder(
-                                              shrinkWrap: true,
-                                              itemCount: _predictions.length,
-                                              itemBuilder: (context, index) {
-                                                final prediction =
-                                                    _predictions[index];
-                                                return ListTile(
-                                                  leading: Icon(
-                                                    Icons.location_on,
-                                                    color: AppColors.primary,
-                                                  ),
-                                                  title: Text(
-                                                      prediction.description ??
-                                                          ''),
-                                                  onTap: () async {
-                                                    //   await _checkLocationPermission();
-                                                    // _searchController.text = prediction
-                                                    //         .structuredFormatting?.mainText ??
-                                                    //     _searchController.text;
-                                                    _searchController.text = '';
-                                                    _selectCity(prediction);
-                                                  },
-                                                  // subtitle: Divider(
-                                                  //   color: AppColors.dividerGrey
-                                                  //       .withAlpha(100),
-                                                  //   thickness: 0.5,
-                                                  //   endIndent: 40,
-                                                  // ),
-                                                  // trailing: Text("Distance ${prediction.distanceMeters}"),
-                                                );
-                                              },
-                                            ),
-                                          )
-                                        : SizedBox(),
-                                    // Positioned(
-                                    //   bottom: 0,
-                                    //   child: Container(
-                                    //       width:
-                                    //           MediaQuery.of(context).size.width,
-                                    //       margin: EdgeInsets.symmetric(
-                                    //           horizontal: 30.w, vertical: 65.h),
-                                    //       decoration: BoxDecoration(
-                                    //           color: Colors.white,
-                                    //           borderRadius: BorderRadius.only(
-                                    //               bottomLeft:
-                                    //                   Radius.circular(20.r),
-                                    //               bottomRight:
-                                    //                   Radius.circular(20.r))),
-                                    //       child: Text("data")),
-                                    // )
                                   ],
                                 ),
-                              ),
+                                Container(
+                                  height: 35.h,
+                                  margin: EdgeInsets.only(bottom: 10.h),
+                                  // color: Colors.white,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.only(
+                                      // topLeft: Radius.circular(
+                                      //     28.r), // Adjust for desired roundness
+                                      // topRight: Radius.circular(28.r),
+                                      bottomLeft: Radius.circular(28.r),
+                                      bottomRight: Radius.circular(28.r),
+                                    ),
+                                  ),
+                                )
+                              ],
                             ),
-                            if (!showBottomSheet)
-                              Positioned(
-                                bottom: 0,
-                                left: 0,
-                                right: 0,
-                                child: Column(
-                                  children: [
-                                    Image.asset(
-                                      'assets/mapbottom.png',
-                                      width: MediaQuery.of(context).size.width,
-                                      fit: BoxFit.cover,
-                                    ),
-                                    Container(height: 12.h, color: Colors.white,)
-                                  ],
-                                ),
-                              ),
-                          ],
-                        )
-                      : locationPermissionWidget(),
-              // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
-              bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox()
-              // : Container(
-              //     color: Colors.transparent, // Ensures full transparency
-              //     child: Image.asset(
-              //       'assets/mapbottom.png',
-              //       width: MediaQuery.of(context).size.width,
-              //       fit: BoxFit.cover,
-              //     ),
-              //   ),
-              // : IntrinsicHeight(
-              //     child: Stack(
-              //       children: [
-              //         Container(
-              //             height: 100,
-              //             width: MediaQuery.of(context).size.width,
-              //             decoration: BoxDecoration(
-              //               color: const Color.fromARGB(
-              //                   255, 101, 7, 216), // Background color
-              //               // borderRadius: BorderRadius.only(
-              //               //   topLeft: Radius.circular(30),
-              //               //   topRight: Radius.circular(30),
-              //               // ),
-              //             ),
-              //             child: Text("data")),
-              //         Padding(
-              //           padding: EdgeInsets.only(bottom: 30.h),
-              //           child: Container(
-              //               height: 50,
-              //               width: MediaQuery.of(context).size.width,
-              //               margin: EdgeInsets.only(bottom: 30.h),
-              //               decoration: BoxDecoration(
-              //                 color: const Color.fromARGB(
-              //                     255, 225, 23, 23), // Background color
-              //                 borderRadius: BorderRadius.only(
-              //                   bottomLeft: Radius.circular(30),
-              //                   bottomRight: Radius.circular(30),
-              //                 ),
-              //               ),
-              //               child: Text("Upper Lower")),
-              //         ),
-              //       ],
-              //     ),
-              //   ),
-              // bottomSheet: _buildStopsList(),
-              ),
+                          ),
+                          // Positioned(
+                          //   bottom: 40,
+                          //   // left: 0,
+                          //   // right: 0,
+                          //   child: Container(
+                          //     width: MediaQuery.of(context).size.width,
+                          //     decoration: BoxDecoration(
+                          //         color: const Color.fromARGB(255, 255, 0, 0),
+                          //         borderRadius: BorderRadius.only(
+                          //             bottomLeft: Radius.circular(28.r),
+                          //             bottomRight: Radius.circular(20.r))),
+                          //     child: showBottomSheet
+                          //         ? bottomSheetWidget()
+                          //         : SizedBox(),
+                          //   ),
+                          // )
+                        ],
+                      )
+                    : locationPermissionWidget(),
+          ),
+          // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
+          // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
+          // bottomSheet: showBottomSheet
+          //     ? AnimatedContainer(
+          //         duration: Duration(milliseconds: 500), // Smooth animation
+          //         height:
+          //             _isExpanded ? null : 60.h, // Expanded & Collapsed heights
+          //         decoration: BoxDecoration(
+          //           color: Colors.white,
+          //           borderRadius: BorderRadius.only(
+          //             topLeft: Radius.circular(25.r),
+          //             topRight: Radius.circular(25.r),
+          //           ),
+          //         ),
+          //         child: _isExpanded
+          //             ? _expandedBottomSheet()
+          //             : _collapsedBottomSheet(),
+          //       )
+          //     : SizedBox(),
+          // : Container(
+          //     color: Colors.transparent, // Ensures full transparency
+          //     child: Image.asset(
+          //       'assets/mapbottom.png',
+          //       width: MediaQuery.of(context).size.width,
+          //       fit: BoxFit.cover,
+          //     ),
+          //   ),
+          // : IntrinsicHeight(
+          //     child: Stack(
+          //       children: [
+          //         Container(
+          //             height: 100,
+          //             width: MediaQuery.of(context).size.width,
+          //             decoration: BoxDecoration(
+          //               color: const Color.fromARGB(
+          //                   255, 101, 7, 216), // Background color
+          //               // borderRadius: BorderRadius.only(
+          //               //   topLeft: Radius.circular(30),
+          //               //   topRight: Radius.circular(30),
+          //               // ),
+          //             ),
+          //             child: Text("data")),
+          //         Padding(
+          //           padding: EdgeInsets.only(bottom: 30.h),
+          //           child: Container(
+          //               height: 50,
+          //               width: MediaQuery.of(context).size.width,
+          //               margin: EdgeInsets.only(bottom: 30.h),
+          //               decoration: BoxDecoration(
+          //                 color: const Color.fromARGB(
+          //                     255, 225, 23, 23), // Background color
+          //                 borderRadius: BorderRadius.only(
+          //                   bottomLeft: Radius.circular(30),
+          //                   bottomRight: Radius.circular(30),
+          //                 ),
+          //               ),
+          //               child: Text("Upper Lower")),
+          //         ),
+          //       ],
+          //     ),
+          //   ),
+          // bottomSheet: _buildStopsList(),
         ),
       );
     } catch (e, stacktrace) {
@@ -1367,196 +1595,376 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   Widget locationPermissionWidget() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.location_off,
-            size: 80.sp,
-            color: Colors.grey,
-          ),
-          SizedBox(height: 20.sp),
-          Text(
-            "Please allow location permissions\nto use the app",
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 16.sp,
-              color: Colors.grey,
-            ),
-          ),
-          SizedBox(height: 20.sp),
-          ElevatedButton(
-            onPressed: () async {
-              await Geolocator.openAppSettings();
-              // await Geolocator.openLocationSettings();
-              // _checkLocationPermission();
-              _initializeApp();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(50.sp),
-              ),
-            ),
-            child: Text(
-              'Grant Permissions',
-              style: TextStyle(fontSize: 16.sp, color: AppColors.primaryText),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget bottomSheetWidget() {
     return Container(
-      // color: Colors.black,
+      margin: EdgeInsets.only(bottom: 10.h),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(25.r), // Top-left corner rounded
-          topRight: Radius.circular(25.r), // Top-right corner rounded
+          topLeft: Radius.circular(28.r), // Adjust for desired roundness
+          topRight: Radius.circular(28.r),
+          bottomLeft: Radius.circular(28.r),
+          bottomRight: Radius.circular(28.r),
         ),
       ),
-      child: Padding(
-        padding: EdgeInsets.only(left: 16.w, right: 16.w, bottom: 16.w),
+      child: Center(
         child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Container(
-              height: 4.h, // Height of the divider
-              width: double.infinity, // Full width or customize as needed
-              margin: EdgeInsets.symmetric(
-                  horizontal: 150.w, vertical: 16.h), // Adjust margin as needed
-              decoration: BoxDecoration(
-                color: AppColors.dividerGrey, // Divider color
-                borderRadius: BorderRadius.circular(2.h), // Rounded edges
+            Icon(
+              Icons.location_off,
+              size: 80.sp,
+              color: Colors.grey,
+            ),
+            SizedBox(height: 20.sp),
+            Text(
+              "Please allow location permissions\nto use the app",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 16.sp,
+                color: Colors.grey,
               ),
             ),
-            isJourneyStarted
-                ? SizedBox()
-                : Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _transportationOption(
-                          icon: Icons.directions_car,
-                          label: "Car",
-                          mode: 'driving'),
-                      _transportationOption(
-                          icon: Icons.directions_walk,
-                          label: "Walking",
-                          mode: 'walking'),
-                      _transportationOption(
-                          icon: Icons.directions_bike,
-                          label: "Bike",
-                          mode: 'bicycling'),
-                      _transportationOption(
-                          icon: Icons.train, label: "Transit", mode: 'transit'),
-                    ],
-                  ),
-            Divider(color: AppColors.textField),
-
-            // Row(
-            //   crossAxisAlignment: CrossAxisAlignment.center,
-            //   children: [
-            // Icon(Icons.alt_route_outlined,
-            //     size: 22.sp, color: AppColors.dividerGrey),
-            // SizedBox(width: 5.w),
-            // Padding(
-            //   padding: EdgeInsets.only(top: 3.h),
-            //   child: Text(
-            //     tollInfoText ?? "N/A",
-            //     style: TextStyle(
-            //         fontSize: 14.sp,
-            //         color: AppColors.primaryGrey),
-            //     textAlign: TextAlign.center,
-            //   ),
-            // ),
-            //   ],
-            // ),
-            // Horizontal Row Commented
-            // Row(
-            //   crossAxisAlignment: CrossAxisAlignment.center,
-            //   children: [
-            // Icon(Icons.access_time_filled,
-            //     size: 22.sp, color: AppColors.dividerGrey),
-            // SizedBox(width: 5.w),
-            // Padding(
-            //   padding: EdgeInsets.only(top: 3.h),
-            //   child: Text(
-            //     durationText ?? "N/A",
-            //     style: TextStyle(
-            //         fontSize: 14.sp,
-            //         color: AppColors.primaryGrey),
-            //     textAlign: TextAlign.center,
-            //   ),
-            // ),
-            //   ],
-            // ),
-            // Row(
-            //   crossAxisAlignment: CrossAxisAlignment.center,
-            //   children: [
-            //     Icon(Icons.location_pin,
-            //         color: AppColors.dividerGrey),
-            //     SizedBox(width: 5.w),
-            //     Padding(
-            //       padding: EdgeInsets.only(top: 3.h),
-            //       child: Text(
-            //         convertKmToMiles(distanceText.toString()),
-            //         style: TextStyle(
-            //             fontSize: 14.sp,
-            //             color: AppColors.primaryGrey),
-            //         textAlign: TextAlign.center,
-            //       ),
-            //     ),
-            //   ],
-            // ),
-            checkStopsStatus() ? showMultipleStops() : showSingleStop(),
-            SizedBox(height: 20),
-            // Start Journet
+            SizedBox(height: 20.sp),
             ElevatedButton(
-              onPressed: () {
-                if (!isJourneyStarted) {
-                  // _startNavigation(selectedRoutePoints);
-                  setState(() {
-                    isJourneyStarted = true;
-                  });
-                  _startLiveNavigation();
-                } else {
-                  _resetState();
-                }
+              onPressed: () async {
+                await Geolocator.openAppSettings();
+                // await Geolocator.openLocationSettings();
+                // _checkLocationPermission();
+                _initializeApp();
               },
               style: ElevatedButton.styleFrom(
-                backgroundColor: isJourneyStarted
-                    ? AppColors.primaryText
-                    : AppColors.primary,
+                backgroundColor: AppColors.primary,
                 padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10.sp),
+                  borderRadius: BorderRadius.circular(50.sp),
                 ),
-                minimumSize: Size(MediaQuery.of(context).size.width, 50.sp),
               ),
-              child: isJourneyStarted
-                  ? Text(
-                      'Exit',
-                      style: TextStyle(fontSize: 16.sp, color: Colors.white),
-                    )
-                  : Text(
-                      'Start',
-                      style: TextStyle(
-                          fontSize: 16.sp, color: AppColors.primaryText),
-                    ),
+              child: Text(
+                'Grant Permissions',
+                style: TextStyle(fontSize: 16.sp, color: AppColors.primaryText),
+              ),
             ),
-            // SizedBox(height: 10.h),
-            // Transportation mode selection
           ],
         ),
       ),
     );
   }
+
+  bool _isExpanded = false; // Track expansion state
+
+  Widget bottomSheetWidget() {
+    return AnimatedContainer(
+      margin: EdgeInsets.symmetric(vertical: 30.h, horizontal: 15.w),
+      duration: Duration(milliseconds: 500), // Smooth animation
+      constraints: BoxConstraints(
+        minHeight: 60.h, // Minimum height for collapsed state
+        maxHeight: MediaQuery.of(context).size.height *
+            0.6, // Maximum height for expansion
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(25.r),
+            topRight: Radius.circular(25.r),
+            bottomLeft: Radius.circular(25.r),
+            bottomRight: Radius.circular(25.r)),
+      ),
+      child: Padding(
+        padding:
+            EdgeInsets.only(left: 16.w, right: 16.w, bottom: 16.h, top: 16.h),
+        child: Column(
+          mainAxisSize: MainAxisSize.min, // Allow dynamic height
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Arrow Button for Expansion
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _isExpanded = !_isExpanded; // Toggle state
+                });
+              },
+              child: Center(
+                child: Icon(
+                  _isExpanded
+                      ? Icons.keyboard_arrow_down
+                      : Icons.keyboard_arrow_up,
+                  size: 30.sp,
+                  color: AppColors.dividerGrey,
+                ),
+              ),
+            ),
+
+            // Show Content Only When Expanded
+            if (_isExpanded) ...[
+              SizedBox(height: 10.h),
+
+              // Transportation Mode Selection
+              if (!isJourneyStarted)
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _transportationOption(
+                        icon: Icons.directions_car,
+                        label: "Car",
+                        mode: 'driving'),
+                    _transportationOption(
+                        icon: Icons.directions_walk,
+                        label: "Walking",
+                        mode: 'walking'),
+                    _transportationOption(
+                        icon: Icons.directions_bike,
+                        label: "Bike",
+                        mode: 'bicycling'),
+                    _transportationOption(
+                        icon: Icons.train, label: "Transit", mode: 'transit'),
+                  ],
+                ),
+
+              Divider(color: AppColors.textField),
+
+              // Stops Info
+              checkStopsStatus() ? showMultipleStops() : showSingleStop(),
+
+              SizedBox(height: 20),
+
+              // Start Journey Button
+              ElevatedButton(
+                onPressed: () {
+                  if (!isJourneyStarted) {
+                    setState(() {
+                      isJourneyStarted = true;
+                    });
+                    _startLiveNavigation();
+                  } else {
+                    _resetState();
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isJourneyStarted
+                      ? AppColors.primaryText
+                      : AppColors.primary,
+                  padding:
+                      EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10.sp),
+                  ),
+                  minimumSize: Size(MediaQuery.of(context).size.width, 50.sp),
+                ),
+                child: Text(
+                  isJourneyStarted ? 'Exit' : 'Start',
+                  style: TextStyle(
+                      fontSize: 16.sp,
+                      color: isJourneyStarted
+                          ? Colors.white
+                          : AppColors.primaryText),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+//   bool _isExpanded = false; // Track expansion state
+
+// // Collapsed View (Only Arrow Icon)
+//   Widget _collapsedBottomSheet() {
+//     return GestureDetector(
+//       onTap: () {
+//         setState(() {
+//           _isExpanded = true; // Expand on tap
+//         });
+//       },
+//       child: Center(
+//         child: Icon(
+//           Icons.keyboard_arrow_up, // Show up arrow
+//           size: 30.sp,
+//           color: AppColors.dividerGrey,
+//         ),
+//       ),
+//     );
+//   }
+
+// // Expanded Bottom Sheet
+//   Widget _expandedBottomSheet() {
+//     return IntrinsicHeight(
+//       child: Padding(
+//         padding: EdgeInsets.only(left: 16.w, right: 16.w, bottom: 16.w),
+//         child: Column(
+//           mainAxisSize: MainAxisSize.min,
+//           crossAxisAlignment: CrossAxisAlignment.start,
+//           children: [
+//             // Arrow Button for Collapse
+//             GestureDetector(
+//               onTap: () {
+//                 setState(() {
+//                   _isExpanded = false; // Collapse on tap
+//                 });
+//               },
+//               child: Container(
+//                 height: 60.h,
+//                 child: Center(
+//                   child: Icon(
+//                     Icons.keyboard_arrow_down, // Show down arrow
+//                     size: 30.sp,
+//                     color: AppColors.dividerGrey,
+//                   ),
+//                 ),
+//               ),
+//             ),
+//             Divider(color: AppColors.textField),
+
+//             isJourneyStarted
+//                 ? SizedBox()
+//                 : Row(
+//                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+//                     children: [
+//                       _transportationOption(
+//                           icon: Icons.directions_car,
+//                           label: "Car",
+//                           mode: 'driving'),
+//                       _transportationOption(
+//                           icon: Icons.directions_walk,
+//                           label: "Walking",
+//                           mode: 'walking'),
+//                       _transportationOption(
+//                           icon: Icons.directions_bike,
+//                           label: "Bike",
+//                           mode: 'bicycling'),
+//                       _transportationOption(
+//                           icon: Icons.train, label: "Transit", mode: 'transit'),
+//                     ],
+//                   ),
+
+//             checkStopsStatus() ? showMultipleStops() : showSingleStop(),
+//             SizedBox(height: 20),
+
+//             // Start Journey Button
+//             ElevatedButton(
+//               onPressed: () {
+//                 if (!isJourneyStarted) {
+//                   setState(() {
+//                     isJourneyStarted = true;
+//                   });
+//                   _startLiveNavigation();
+//                 } else {
+//                   _resetState();
+//                 }
+//               },
+//               style: ElevatedButton.styleFrom(
+//                 backgroundColor: isJourneyStarted
+//                     ? AppColors.primaryText
+//                     : AppColors.primary,
+//                 padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
+//                 shape: RoundedRectangleBorder(
+//                   borderRadius: BorderRadius.circular(10.sp),
+//                 ),
+//                 minimumSize: Size(MediaQuery.of(context).size.width, 50.sp),
+//               ),
+//               child: Text(
+//                 isJourneyStarted ? 'Exit' : 'Start',
+//                 style: TextStyle(fontSize: 16.sp, color: isJourneyStarted ?Colors.white : AppColors.primaryText),
+//               ),
+//             ),
+//           ],
+//         ),
+//       ),
+//     );
+//   }
+
+// Static Bottom Sheet
+  // Widget bottomSheetWidget() {
+  //   return Container(
+  //     // color: Colors.black,
+  //     decoration: BoxDecoration(
+  //       color: Colors.white,
+  //       borderRadius: BorderRadius.only(
+  //         topLeft: Radius.circular(25.r), // Top-left corner rounded
+  //         topRight: Radius.circular(25.r), // Top-right corner rounded
+  //       ),
+  //     ),
+  //     child: Padding(
+  //       padding: EdgeInsets.only(left: 16.w, right: 16.w, bottom: 16.w),
+  //       child: Column(
+  //         mainAxisSize: MainAxisSize.min,
+  //         crossAxisAlignment: CrossAxisAlignment.start,
+  //         children: [
+  //           Container(
+  //             height: 4.h, // Height of the divider
+  //             width: double.infinity, // Full width or customize as needed
+  //             margin: EdgeInsets.symmetric(
+  //                 horizontal: 150.w, vertical: 16.h), // Adjust margin as needed
+  //             decoration: BoxDecoration(
+  //               color: AppColors.dividerGrey, // Divider color
+  //               borderRadius: BorderRadius.circular(2.h), // Rounded edges
+  //             ),
+  //           ),
+  //           isJourneyStarted
+  //               ? SizedBox()
+  //               : Row(
+  //                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+  //                   children: [
+  //                     _transportationOption(
+  //                         icon: Icons.directions_car,
+  //                         label: "Car",
+  //                         mode: 'driving'),
+  //                     _transportationOption(
+  //                         icon: Icons.directions_walk,
+  //                         label: "Walking",
+  //                         mode: 'walking'),
+  //                     _transportationOption(
+  //                         icon: Icons.directions_bike,
+  //                         label: "Bike",
+  //                         mode: 'bicycling'),
+  //                     _transportationOption(
+  //                         icon: Icons.train, label: "Transit", mode: 'transit'),
+  //                   ],
+  //                 ),
+  //           Divider(color: AppColors.textField),
+  //           checkStopsStatus() ? showMultipleStops() : showSingleStop(),
+  //           SizedBox(height: 20),
+  //           // Start Journey
+  //           ElevatedButton(
+  //             onPressed: () {
+  //               if (!isJourneyStarted) {
+  //                 // _startNavigation(selectedRoutePoints);
+  //                 setState(() {
+  //                   isJourneyStarted = true;
+  //                 });
+  //                 _startLiveNavigation();
+  //               } else {
+  //                 _resetState();
+  //               }
+  //             },
+  //             style: ElevatedButton.styleFrom(
+  //               backgroundColor: isJourneyStarted
+  //                   ? AppColors.primaryText
+  //                   : AppColors.primary,
+  //               padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
+  //               shape: RoundedRectangleBorder(
+  //                 borderRadius: BorderRadius.circular(10.sp),
+  //               ),
+  //               minimumSize: Size(MediaQuery.of(context).size.width, 50.sp),
+  //             ),
+  //             child: isJourneyStarted
+  //                 ? Text(
+  //                     'Exit',
+  //                     style: TextStyle(fontSize: 16.sp, color: Colors.white),
+  //                   )
+  //                 : Text(
+  //                     'Start',
+  //                     style: TextStyle(
+  //                         fontSize: 16.sp, color: AppColors.primaryText),
+  //                   ),
+  //           ),
+  //           // SizedBox(height: 10.h),
+  //           // Transportation mode selection
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
 
   Widget multipleStopCardDesign(Map<String, dynamic> stop) {
     bool isLastStop = _stopsInfo.last == stop;
@@ -1603,10 +2011,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  height: 20.h,
+                  height: 25.h,
                   width: MediaQuery.of(context).size.width,
                   child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         stop['stopNo'],
@@ -1808,8 +2215,9 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         children: [
           Row(
             children: [
-              SizedBox(
-                width: MediaQuery.of(context).size.width / 1.3,
+              Container(
+                color: const Color.fromARGB(255, 255, 255, 255),
+                width: 260.w,
                 child: Text(
                   (_stopsInfo.isNotEmpty)
                       ? _stopsInfo.last['name']
