@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -140,7 +141,14 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
   void _onMapCreated(GoogleMapController controller) {
-    mapController = controller;
+    // mapController = controller;
+      mapController = controller;
+
+  // // Load the dark mode JSON from assets
+  // String style = await rootBundle.loadString('assets/dark_mode.json');
+
+  // // Apply the style to the map
+  // mapController!.setMapStyle(style);
   }
 
   Future<void> _initializeApp() async {
@@ -174,8 +182,10 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       countryCode = await getCountryCode(
           LatLng(locationData.latitude!, locationData.longitude!));
       _updateUserLocation(locationData);
-
-      setState(() => isLoading = false); // byme
+      setState(() {
+        hasLocationPermission = true;
+        isLoading = false;
+      }); // byme
     } catch (e) {
       debugPrint("Error initializing user location: $e");
       setState(() => isLoading = false);
@@ -298,27 +308,74 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   //     _initialPosition = LatLng(locationData.latitude!, locationData.longitude!);
   // }
 
+  double _calculateBearing(LatLng start, LatLng end) {
+    double lat1 = start.latitude * (pi / 180);
+    double lon1 = start.longitude * (pi / 180);
+    double lat2 = end.latitude * (pi / 180);
+    double lon2 = end.longitude * (pi / 180);
+
+    double dLon = lon2 - lon1;
+
+    double y = sin(dLon) * cos(lat2);
+    double x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
+
+    double bearing = atan2(y, x) * (180 / pi);
+    return (bearing + 360) % 360; // Normalize the bearing
+  }
+
 // Function to update the user's location marker
   void _updateUserLocation(loc.LocationData locationData) {
     final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
+    // final heading = locationData.heading ?? 0.0;
+
+    LatLng? nextPoint;
+    if (_polylines.isNotEmpty) {
+      // Get the next point in the polyline
+      nextPoint = _polylines.first.points.length > 1
+          ? _polylines.first.points[1] // Get the next point
+          : null;
+    }
+
+    final bearing =
+        nextPoint != null ? _calculateBearing(userLatLng, nextPoint) : 0.0;
 
     setState(() {
       _initialPosition = userLatLng; // Keep track of current position
 
-      final heading = locationData.heading ?? 0.0;
+      // final heading = locationData.heading ?? 0.0;
 
       _startingMarker = Marker(
         markerId: const MarkerId('userLocation'),
         position: userLatLng,
         icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
         infoWindow: const InfoWindow(title: "Your Current Location"),
-        rotation: heading, // Rotate marker based on the user's heading
+        rotation: bearing, // Rotate marker based on user's heading
       );
     });
 
-    // Optionally trigger route recalculation (if needed frequently)
+    if (isJourneyStarted) {
+      // Animate camera to move to the user's location and face the polyline
+      _animateCameraToUserPosition(userLatLng, bearing);
+    }
+
+    // Optionally trigger route recalculation
     if (isJourneyStarted) {
       _fetchAndDrawRoutes(currentPosition: userLatLng);
+    }
+  }
+
+  void _animateCameraToUserPosition(LatLng userLatLng, double heading) {
+    if (mapController != null) {
+      mapController!.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: userLatLng,
+            zoom: 20.0, // Adjust zoom level as needed
+            tilt: 60.0, // Tilt camera for a 3D perspective
+            bearing: heading, // Rotate camera based on user direction
+          ),
+        ),
+      );
     }
   }
 
@@ -1328,6 +1385,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                                       myLocationEnabled: false,
                                       compassEnabled: false,
                                       mapType: MapType.normal,
+                                      // style: 'assets/dark_mode.json' ,
                                       initialCameraPosition: CameraPosition(
                                         target: _initialPosition,
                                         zoom: 14,
@@ -1732,6 +1790,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                 onPressed: () {
                   if (!isJourneyStarted) {
                     setState(() {
+                      _isExpanded = false;
                       isJourneyStarted = true;
                     });
                     _startLiveNavigation();
