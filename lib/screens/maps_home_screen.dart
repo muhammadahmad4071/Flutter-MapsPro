@@ -12,6 +12,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:google_maps_webservice/places.dart';
 import 'package:http/http.dart' as http;
+import 'package:maps/screens/VoiceService.dart';
 import 'package:maps/screens/no_internet.dart';
 import 'package:maps/screens/signup_screen.dart';
 import 'package:maps/util/app_colors.dart';
@@ -80,6 +81,10 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   bool _isRequestingPermission = false;
   User? _user;
 
+  final VoiceService _voiceService = VoiceService();
+  int _currentInstructionIndex = 0;
+
+
   bool containTolls = false;
 
   @override
@@ -142,13 +147,13 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   void _onMapCreated(GoogleMapController controller) {
     // mapController = controller;
-      mapController = controller;
+    mapController = controller;
 
-  // // Load the dark mode JSON from assets
-  // String style = await rootBundle.loadString('assets/dark_mode.json');
+    // // Load the dark mode JSON from assets
+    // String style = await rootBundle.loadString('assets/dark_mode.json');
 
-  // // Apply the style to the map
-  // mapController!.setMapStyle(style);
+    // // Apply the style to the map
+    // mapController!.setMapStyle(style);
   }
 
   Future<void> _initializeApp() async {
@@ -160,7 +165,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       } else {
         setState(() => isLoading = false); // Stop loading if no permission
       }
-      _startPermissionCheck();
+      // _startPermissionCheck(); 
       debugPrint("myDebug isLoading _initializeApp() $isLoading");
     } catch (e) {
       debugPrint("Error initializing App: $e");
@@ -309,75 +314,73 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   // }
 
   double _calculateBearing(LatLng start, LatLng end) {
-    double lat1 = start.latitude * (pi / 180);
-    double lon1 = start.longitude * (pi / 180);
-    double lat2 = end.latitude * (pi / 180);
-    double lon2 = end.longitude * (pi / 180);
+  final double lat1 = start.latitude * pi / 180.0;
+  final double lon1 = start.longitude * pi / 180.0;
+  final double lat2 = end.latitude * pi / 180.0;
+  final double lon2 = end.longitude * pi / 180.0;
 
-    double dLon = lon2 - lon1;
+  final double dLon = lon2 - lon1;
 
-    double y = sin(dLon) * cos(lat2);
-    double x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
+  final double y = sin(dLon) * cos(lat2);
+  final double x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
 
-    double bearing = atan2(y, x) * (180 / pi);
-    return (bearing + 360) % 360; // Normalize the bearing
-  }
+  final double bearing = atan2(y, x) * 180.0 / pi;
+
+  return (bearing + 360) % 360; // Ensure positive value
+}
+
 
 // Function to update the user's location marker
   void _updateUserLocation(loc.LocationData locationData) {
-    final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
-    // final heading = locationData.heading ?? 0.0;
+  final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
+  double heading = locationData.heading ?? 0.0;
 
-    LatLng? nextPoint;
-    if (_polylines.isNotEmpty) {
-      // Get the next point in the polyline
-      nextPoint = _polylines.first.points.length > 1
-          ? _polylines.first.points[1] // Get the next point
-          : null;
-    }
-
-    final bearing =
-        nextPoint != null ? _calculateBearing(userLatLng, nextPoint) : 0.0;
-
-    setState(() {
-      _initialPosition = userLatLng; // Keep track of current position
-
-      // final heading = locationData.heading ?? 0.0;
-
-      _startingMarker = Marker(
-        markerId: const MarkerId('userLocation'),
-        position: userLatLng,
-        icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
-        infoWindow: const InfoWindow(title: "Your Current Location"),
-        rotation: bearing, // Rotate marker based on user's heading
-      );
-    });
-
-    if (isJourneyStarted) {
-      // Animate camera to move to the user's location and face the polyline
-      _animateCameraToUserPosition(userLatLng, bearing);
-    }
-
-    // Optionally trigger route recalculation
-    if (isJourneyStarted) {
-      _fetchAndDrawRoutes(currentPosition: userLatLng);
-    }
+  LatLng? nextPoint;
+  if (_polylines.isNotEmpty && _polylines.first.points.length > 1) {
+    nextPoint = _polylines.first.points[1];
   }
 
-  void _animateCameraToUserPosition(LatLng userLatLng, double heading) {
-    if (mapController != null) {
-      mapController!.animateCamera(
-        CameraUpdate.newCameraPosition(
-          CameraPosition(
-            target: userLatLng,
-            zoom: 20.0, // Adjust zoom level as needed
-            tilt: 60.0, // Tilt camera for a 3D perspective
-            bearing: heading, // Rotate camera based on user direction
-          ),
-        ),
-      );
-    }
+  final bearing = nextPoint != null 
+      ? _calculateBearing(userLatLng, nextPoint)
+      : heading;  // Fallback to device heading if no polyline point is available
+
+  setState(() {
+    _initialPosition = userLatLng;
+
+    _startingMarker = Marker(
+      markerId: const MarkerId('userLocation'),
+      position: userLatLng,
+      icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
+      infoWindow: const InfoWindow(title: "Your Current Location"),
+      rotation: bearing,
+      anchor: const Offset(0.5, 0.5), // Center the rotation point
+    );
+  });
+
+  if (isJourneyStarted) {
+    _animateCameraToUserPosition(userLatLng, bearing);
   }
+
+  if (isJourneyStarted) {
+    _fetchAndDrawRoutes(currentPosition: userLatLng);
+  }
+}
+
+
+void _animateCameraToUserPosition(LatLng position, double bearing) {
+  final cameraUpdate = CameraUpdate.newCameraPosition(
+    CameraPosition(
+      target: position,
+      zoom: 16.0,
+      bearing: bearing,  // Align camera with movement direction
+      tilt: 45.0,         // Optional: Adds a slight 3D effect for better navigation
+    ),
+  );
+  
+  mapController?.animateCamera(cameraUpdate);
+}
+
+
 
   Future<void> _moveToUserLocation() async {
     try {
@@ -469,7 +472,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   Future<BitmapDescriptor> getCustomIcon() async {
     return await BitmapDescriptor.asset(
       ImageConfiguration(size: Size(24.w, 24.h)), // Specify desired size
-      'assets/current_location_marker.png',
+      'assets/nav_arrow_icon.png',
+      // 'assets/current_location_marker.png',
       // 'assets/anim_location.gif',21302130
     );
   }
@@ -505,6 +509,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       debugPrint("Error fetching place details: ${placeDetails.errorMessage}");
     }
   }
+
 
   // SortedDestinations
   Future<void> _fetchAndDrawRoutes({LatLng? currentPosition}) async {
@@ -545,6 +550,10 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
           final route = data['routes'][0];
           final legs = route['legs'];
 
+          //Voice Guidance
+          // final ttsService = VoiceGuidanceService();
+          // ttsService.initTTS();
+
           double totalDistance = 0;
           double totalDuration = 0;
           bool containTolls = false;
@@ -571,6 +580,13 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                   step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
               instructionsList.add(instruction);
 
+              // Speak each step instruction
+              // await _voiceService.speak(instruction);
+              // await Future(step['.delayed(Durationduration']['value']);
+
+              //Voice Guidance
+              // Future.delayed(
+              //     Duration(seconds: 5), () => ttsService.speak(instruction));
               if (instruction.toLowerCase().contains("toll road")) {
                 legContainsToll = true;
                 containTolls = true;
@@ -608,133 +624,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-  // double _calculateDistance(LatLng point1, LatLng point2) {
-  //   var p = 0.017453292519943295;
-  //   var a = 0.5 -
-  //       cos((point2.latitude - point1.latitude) * p) / 2 +
-  //       cos(point1.latitude * p) *
-  //           cos(point2.latitude * p) *
-  //           (1 - cos((point2.longitude - point1.longitude) * p)) /
-  //           2;
-  //   return 12742 * asin(sqrt(a));
-  // }
-
-  // Future<void> _fetchAndDrawRoutes({LatLng? currentPosition}) async {
-  //   try {
-  //     final origin = currentPosition ?? _initialPosition;
-  //     if (origin == null || _destinationPositions.isEmpty) {
-  //       throw Exception("Current or destination position is not set.");
-  //     }
-
-  //     String waypoints = _destinationPositions
-  //         .sublist(0, _destinationPositions.length - 1) // All except last
-  //         .map((latLng) => '${latLng.latitude},${latLng.longitude}')
-  //         .join('|');
-  //     debugPrint('myDebug WayPoints added: $waypoints');
-
-  //     final finalDestination = _destinationPositions.last;
-
-  //     final directionsUrl =
-  //         'https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}&destination=${finalDestination.latitude},${finalDestination.longitude}&waypoints=$waypoints&mode=$_selectedMode&alternatives=true&key=$myApiKey';
-
-  //     debugPrint("my Debug Fetching routes: $directionsUrl");
-  //     final response = await http.get(Uri.parse(directionsUrl));
-
-  //     if (response.statusCode == 200) {
-  //       final data = json.decode(response.body);
-
-  //       if (data['routes'] != null && data['routes'].isNotEmpty) {
-  //         debugPrint('Fetched Routes response: ${data}');
-  //         final route = data['routes'][0];
-  //         final legs = route['legs'];
-
-  //         double totalDistance = 0;
-  //         double totalDuration = 0;
-  //         bool containTolls = false;
-  //         // List<String> instructionsList = [];
-
-  //         // Check warnings for toll roads
-  //         if (route['warnings'] != null) {
-  //           debugPrint("myDebug toll Warning Response: ${route['warnings']}");
-  //           for (var warning in route['warnings']) {
-  //             if (warning.toString().toLowerCase().contains("toll road")) {
-  //               containTolls = true;
-  //               break;
-  //             }
-  //           }
-  //         }
-
-  //         // Check if any leg contains a toll road
-  //         for (var leg in legs) {
-  //           totalDistance += leg['distance']['value'];
-  //           totalDuration += leg['duration']['value'];
-
-  //           List<String> instructionsList = [];
-  //           bool legContainsToll = false;
-
-  //           for (var step in leg['steps']) {
-  //             String instruction =
-  //                 step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
-  //             instructionsList.add(instruction);
-
-  //             if (instruction.toLowerCase().contains("toll road")) {
-  //               legContainsToll = true;
-  //               containTolls = true; // If any leg has toll, the route has tolls
-  //             }
-  //           }
-
-  //           leg['instructions'] =
-  //               instructionsList; // Store instructions for each stop
-  //           leg['hasToll'] = legContainsToll; // Store toll info for this leg
-  //         }
-
-  //         if (!mounted) return;
-  //         setState(() {
-  //           distanceText = "${(totalDistance / 1000).toStringAsFixed(1)} km";
-  //           durationText = "${(totalDuration / 60).toStringAsFixed(0)} min";
-  //           // navigationInstructions = instructionsList;
-  //           _polylines.clear();
-  //         });
-
-  //         await _drawPolylines(data['routes']);
-  //         _updateStopsInfo(route, legs);
-  //       } else {
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           SnackBar(content: Text("No routes found.")),
-  //         );
-  //         debugPrint("No routes found.");
-  //       }
-  //     } else {
-  //       throw Exception('Failed to load directions: ${response.statusCode}');
-  //     }
-  //   } catch (e) {
-  //     debugPrint('Error fetching directions: $e');
-  //     setState(() {
-  //       distanceText = 'N/A';
-  //       durationText = 'N/A';
-  //     });
-  //   }
-  // }
-
-  // _directionInstruction(dynamic leg) {
-  //   // Extract turn-by-turn instructions
-  //   List<String> instructionsList = [];
-  //   for (var step in leg) {
-  //     String instruction =
-  //         step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
-  //     debugPrint("myDebug Adding html_instructions $instruction");
-  //     instructionsList.add(instruction);
-  //     // containTolls = instruction.toLowerCase().contains("Toll Road");
-
-  //     if (instruction.toLowerCase().contains("toll road")) {
-  //       containTolls = true;
-  //       debugPrint(
-  //           "myDebug toll road selected contain tolls $containTolls html_instructions ${step['html_instructions']}");
-  //     }
-  //   }
-
-  //   navigationInstructions = instructionsList; // Store for UI display
-  // }
 
   Future<String?> _getPlaceIdFromLatLng(LatLng position) async {
     final url =
@@ -844,21 +733,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
           debugPrint(
               "myDebug fetching stops name ${data['results'][0]['address_components']}");
 
-          // Extract short name from address components
-          // for (var component in data['results'][0]['address_components']) {
-          //   if (component['types'].contains('locality')) {
-          //     return component[
-          //         'short_name']; // Short name (e.g., "NYC" instead of "New York City")
-          //   }
-          //   if (component['types'].contains('sublocality')) {
-          //     return component['short_name']; // More specific short name
-          //   }
-          //   if (component['types'].contains('administrative_area_level_1')) {
-          //     return component['short_name']; // State/province short name
-          //   }
-          // }
-
-          // Fallback: If no short name found, return formatted address
           return data['results'][0]['formatted_address'];
         }
       }
@@ -976,6 +850,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         navigationInstructions = instructionsList; // Store for UI display
 
         debugPrint("Route Toll Info: $containTolls");
+        debugPrint("VGN onRoute Navigation Instruction at Zero: ${navigationInstructions[0]}");
         debugPrint(
             "Turn-by-turn navigation: ${navigationInstructions.join(', ')}");
       } else {
@@ -984,47 +859,14 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     });
   }
 
-  // void _onRouteSelected(String selectedRouteId, List<dynamic> routes) {
-  //   setState(() {
-  //     // Update each polyline's color and width based on selection
-  //     _polylines = _polylines.map((polyline) {
-  //       return Polyline(
-  //         polylineId: polyline.polylineId,
-  //         points: polyline.points,
-  //         color: polyline.polylineId.value == selectedRouteId
-  //             ? AppColors.primary
-  //             : Colors.grey,
-  //         width: polyline.polylineId.value == selectedRouteId ? 8 : 5,
-  //         consumeTapEvents: true,
-  //         onTap: () {
-  //           if (polyline.polylineId.value != selectedRouteId) {
-  //             _onRouteSelected(polyline.polylineId.value, routes);
-  //           }
-  //         },
-  //       );
-  //     }).toSet();
 
-  //     // Find the selected route to update distance and duration
-  //     final selectedRoute = _polylines.firstWhere(
-  //         (polyline) => polyline.polylineId.value == selectedRouteId);
-  //     final selectedRouteDetails = routes.firstWhere(
-  //         (route) => route['summary'] == selectedRouteId)['legs'][0];
-  //     distanceText = selectedRouteDetails['distance']['text'];
-  //     durationText = selectedRouteDetails['duration']['text'];
+  void _speakNextInstruction() async {
+  if (_currentInstructionIndex < navigationInstructions.length) {
+    await _voiceService.speak(navigationInstructions[_currentInstructionIndex]);
+    _currentInstructionIndex++;
+  }
+}
 
-  //     debugPrint(
-  //         "Selected route distance: $distanceText, duration: $durationText");
-  //   });
-  // }
-
-  // List<LatLng> _decodePolyline(String encoded) {
-  //   PolylinePoints polylinePoints = PolylinePoints();
-  //   List<LatLng> polylineLatLng = polylinePoints
-  //       .decodePolyline(encoded)
-  //       .map((point) => LatLng(point.latitude, point.longitude))
-  //       .toList();
-  //   return polylineLatLng;
-  // }
 
   void _startLiveNavigation() {
     _moveToUserLocation(); // Move the camera to user's current location
@@ -1034,6 +876,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
           loc.LocationAccuracy.high, // Set high accuracy for better precision
       distanceFilter: 10, // Only update if user moves 10 meters
     );
+    
 
     _locationSubscription = loc.Location.instance.onLocationChanged.listen(
       (locationData) async {
@@ -1045,6 +888,11 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
         final currentLocation =
             LatLng(locationData.latitude!, locationData.longitude!);
+
+        // if (_currentInstructionIndex < navigationInstructions.length &&
+        //     hasUserReachedNextStep(currentLocation)) {
+        //   _speakNextInstruction();
+        // }
 
         // **Check if the user has reached any stop**
         for (var stop in List.from(_stopsInfo)) {
@@ -1106,31 +954,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     return null; // No destinations left
   }
 
-  // void _updateMarkerPosition(LatLng position) {
-  //   setState(() {
-  //     _startingMarker = Marker(
-  //       markerId: const MarkerId('userLocation'),
-  //       position: position,
-  //       icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
-  //     );
-  //   });
-  // }
-
-  // gmaps.TravelMode getTravelMode(String mode) {
-  //   switch (mode.toLowerCase()) {
-  //     case 'driving':
-  //       return gmaps.TravelMode.driving;
-  //     case 'walking':
-  //       return gmaps.TravelMode.walking;
-  //     case 'bicycling':
-  //       return gmaps.TravelMode.bicycling;
-  //     case 'transit':
-  //       return gmaps.TravelMode.transit;
-  //     default:
-  //       return gmaps.TravelMode.driving;
-  //   }
-  // }
-
   String convertKmToMiles(String distanceText) {
     final kmToMilesFactor = 0.621371;
 
@@ -1150,32 +973,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     }
   }
 
-  // Widget _buildBottomContainer() {
-  //   return Container(
-  //     padding: EdgeInsets.all(10),
-  //     decoration: BoxDecoration(
-  //       color: Colors.white,
-  //       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-  //       boxShadow: [BoxShadow(blurRadius: 10, color: Colors.grey)],
-  //     ),
-  //     child: Column(
-  //       mainAxisSize: MainAxisSize.min,
-  //       children: [
-  //         Text(
-  //           "Trip Summary",
-  //           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-  //         ),
-  //         Divider(),
-  //         ...stopDetails.map((stop) => ListTile(
-  //               title: Text(stop['name']),
-  //               subtitle: Text(
-  //                   "Distance: ${stop['distance']} | Time: ${stop['duration']}"),
-  //               leading: Icon(Icons.location_on, color: Colors.blue),
-  //             )),
-  //       ],
-  //     ),
-  //   );
-  // }
 
   Set<Marker> _getMarkers() {
     return {
@@ -1535,88 +1332,10 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                               ],
                             ),
                           ),
-                          // Positioned(
-                          //   bottom: 40,
-                          //   // left: 0,
-                          //   // right: 0,
-                          //   child: Container(
-                          //     width: MediaQuery.of(context).size.width,
-                          //     decoration: BoxDecoration(
-                          //         color: const Color.fromARGB(255, 255, 0, 0),
-                          //         borderRadius: BorderRadius.only(
-                          //             bottomLeft: Radius.circular(28.r),
-                          //             bottomRight: Radius.circular(20.r))),
-                          //     child: showBottomSheet
-                          //         ? bottomSheetWidget()
-                          //         : SizedBox(),
-                          //   ),
-                          // )
                         ],
                       )
                     : locationPermissionWidget(),
           ),
-          // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
-          // bottomSheet: showBottomSheet ? bottomSheetWidget() : SizedBox(),
-          // bottomSheet: showBottomSheet
-          //     ? AnimatedContainer(
-          //         duration: Duration(milliseconds: 500), // Smooth animation
-          //         height:
-          //             _isExpanded ? null : 60.h, // Expanded & Collapsed heights
-          //         decoration: BoxDecoration(
-          //           color: Colors.white,
-          //           borderRadius: BorderRadius.only(
-          //             topLeft: Radius.circular(25.r),
-          //             topRight: Radius.circular(25.r),
-          //           ),
-          //         ),
-          //         child: _isExpanded
-          //             ? _expandedBottomSheet()
-          //             : _collapsedBottomSheet(),
-          //       )
-          //     : SizedBox(),
-          // : Container(
-          //     color: Colors.transparent, // Ensures full transparency
-          //     child: Image.asset(
-          //       'assets/mapbottom.png',
-          //       width: MediaQuery.of(context).size.width,
-          //       fit: BoxFit.cover,
-          //     ),
-          //   ),
-          // : IntrinsicHeight(
-          //     child: Stack(
-          //       children: [
-          //         Container(
-          //             height: 100,
-          //             width: MediaQuery.of(context).size.width,
-          //             decoration: BoxDecoration(
-          //               color: const Color.fromARGB(
-          //                   255, 101, 7, 216), // Background color
-          //               // borderRadius: BorderRadius.only(
-          //               //   topLeft: Radius.circular(30),
-          //               //   topRight: Radius.circular(30),
-          //               // ),
-          //             ),
-          //             child: Text("data")),
-          //         Padding(
-          //           padding: EdgeInsets.only(bottom: 30.h),
-          //           child: Container(
-          //               height: 50,
-          //               width: MediaQuery.of(context).size.width,
-          //               margin: EdgeInsets.only(bottom: 30.h),
-          //               decoration: BoxDecoration(
-          //                 color: const Color.fromARGB(
-          //                     255, 225, 23, 23), // Background color
-          //                 borderRadius: BorderRadius.only(
-          //                   bottomLeft: Radius.circular(30),
-          //                   bottomRight: Radius.circular(30),
-          //                 ),
-          //               ),
-          //               child: Text("Upper Lower")),
-          //         ),
-          //       ],
-          //     ),
-          //   ),
-          // bottomSheet: _buildStopsList(),
         ),
       );
     } catch (e, stacktrace) {
@@ -1741,13 +1460,16 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                   _isExpanded = !_isExpanded; // Toggle state
                 });
               },
-              child: Center(
-                child: Icon(
-                  _isExpanded
-                      ? Icons.keyboard_arrow_down
-                      : Icons.keyboard_arrow_up,
-                  size: 30.sp,
-                  color: AppColors.dividerGrey,
+              child: Container(
+                color: Colors.white,
+                child: Center(
+                  child: Icon(
+                    _isExpanded
+                        ? Icons.keyboard_arrow_down
+                        : Icons.keyboard_arrow_up,
+                    size: 30.sp,
+                    color: AppColors.dividerGrey,
+                  ),
                 ),
               ),
             ),
@@ -1781,7 +1503,17 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
               Divider(color: AppColors.textField),
 
               // Stops Info
-              checkStopsStatus() ? showMultipleStops() : showSingleStop(),
+              GestureDetector(
+              onTap: () {
+                setState(() {
+                  _isExpanded = !_isExpanded; // Toggle state
+                });
+              },
+              child: Container(
+                color: Colors.white,
+                child: checkStopsStatus() ? showMultipleStops() : showSingleStop()),
+            ),
+              
 
               SizedBox(height: 20),
 
@@ -1825,205 +1557,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     );
   }
 
-//   bool _isExpanded = false; // Track expansion state
-
-// // Collapsed View (Only Arrow Icon)
-//   Widget _collapsedBottomSheet() {
-//     return GestureDetector(
-//       onTap: () {
-//         setState(() {
-//           _isExpanded = true; // Expand on tap
-//         });
-//       },
-//       child: Center(
-//         child: Icon(
-//           Icons.keyboard_arrow_up, // Show up arrow
-//           size: 30.sp,
-//           color: AppColors.dividerGrey,
-//         ),
-//       ),
-//     );
-//   }
-
-// // Expanded Bottom Sheet
-//   Widget _expandedBottomSheet() {
-//     return IntrinsicHeight(
-//       child: Padding(
-//         padding: EdgeInsets.only(left: 16.w, right: 16.w, bottom: 16.w),
-//         child: Column(
-//           mainAxisSize: MainAxisSize.min,
-//           crossAxisAlignment: CrossAxisAlignment.start,
-//           children: [
-//             // Arrow Button for Collapse
-//             GestureDetector(
-//               onTap: () {
-//                 setState(() {
-//                   _isExpanded = false; // Collapse on tap
-//                 });
-//               },
-//               child: Container(
-//                 height: 60.h,
-//                 child: Center(
-//                   child: Icon(
-//                     Icons.keyboard_arrow_down, // Show down arrow
-//                     size: 30.sp,
-//                     color: AppColors.dividerGrey,
-//                   ),
-//                 ),
-//               ),
-//             ),
-//             Divider(color: AppColors.textField),
-
-//             isJourneyStarted
-//                 ? SizedBox()
-//                 : Row(
-//                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-//                     children: [
-//                       _transportationOption(
-//                           icon: Icons.directions_car,
-//                           label: "Car",
-//                           mode: 'driving'),
-//                       _transportationOption(
-//                           icon: Icons.directions_walk,
-//                           label: "Walking",
-//                           mode: 'walking'),
-//                       _transportationOption(
-//                           icon: Icons.directions_bike,
-//                           label: "Bike",
-//                           mode: 'bicycling'),
-//                       _transportationOption(
-//                           icon: Icons.train, label: "Transit", mode: 'transit'),
-//                     ],
-//                   ),
-
-//             checkStopsStatus() ? showMultipleStops() : showSingleStop(),
-//             SizedBox(height: 20),
-
-//             // Start Journey Button
-//             ElevatedButton(
-//               onPressed: () {
-//                 if (!isJourneyStarted) {
-//                   setState(() {
-//                     isJourneyStarted = true;
-//                   });
-//                   _startLiveNavigation();
-//                 } else {
-//                   _resetState();
-//                 }
-//               },
-//               style: ElevatedButton.styleFrom(
-//                 backgroundColor: isJourneyStarted
-//                     ? AppColors.primaryText
-//                     : AppColors.primary,
-//                 padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
-//                 shape: RoundedRectangleBorder(
-//                   borderRadius: BorderRadius.circular(10.sp),
-//                 ),
-//                 minimumSize: Size(MediaQuery.of(context).size.width, 50.sp),
-//               ),
-//               child: Text(
-//                 isJourneyStarted ? 'Exit' : 'Start',
-//                 style: TextStyle(fontSize: 16.sp, color: isJourneyStarted ?Colors.white : AppColors.primaryText),
-//               ),
-//             ),
-//           ],
-//         ),
-//       ),
-//     );
-//   }
-
-// Static Bottom Sheet
-  // Widget bottomSheetWidget() {
-  //   return Container(
-  //     // color: Colors.black,
-  //     decoration: BoxDecoration(
-  //       color: Colors.white,
-  //       borderRadius: BorderRadius.only(
-  //         topLeft: Radius.circular(25.r), // Top-left corner rounded
-  //         topRight: Radius.circular(25.r), // Top-right corner rounded
-  //       ),
-  //     ),
-  //     child: Padding(
-  //       padding: EdgeInsets.only(left: 16.w, right: 16.w, bottom: 16.w),
-  //       child: Column(
-  //         mainAxisSize: MainAxisSize.min,
-  //         crossAxisAlignment: CrossAxisAlignment.start,
-  //         children: [
-  //           Container(
-  //             height: 4.h, // Height of the divider
-  //             width: double.infinity, // Full width or customize as needed
-  //             margin: EdgeInsets.symmetric(
-  //                 horizontal: 150.w, vertical: 16.h), // Adjust margin as needed
-  //             decoration: BoxDecoration(
-  //               color: AppColors.dividerGrey, // Divider color
-  //               borderRadius: BorderRadius.circular(2.h), // Rounded edges
-  //             ),
-  //           ),
-  //           isJourneyStarted
-  //               ? SizedBox()
-  //               : Row(
-  //                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-  //                   children: [
-  //                     _transportationOption(
-  //                         icon: Icons.directions_car,
-  //                         label: "Car",
-  //                         mode: 'driving'),
-  //                     _transportationOption(
-  //                         icon: Icons.directions_walk,
-  //                         label: "Walking",
-  //                         mode: 'walking'),
-  //                     _transportationOption(
-  //                         icon: Icons.directions_bike,
-  //                         label: "Bike",
-  //                         mode: 'bicycling'),
-  //                     _transportationOption(
-  //                         icon: Icons.train, label: "Transit", mode: 'transit'),
-  //                   ],
-  //                 ),
-  //           Divider(color: AppColors.textField),
-  //           checkStopsStatus() ? showMultipleStops() : showSingleStop(),
-  //           SizedBox(height: 20),
-  //           // Start Journey
-  //           ElevatedButton(
-  //             onPressed: () {
-  //               if (!isJourneyStarted) {
-  //                 // _startNavigation(selectedRoutePoints);
-  //                 setState(() {
-  //                   isJourneyStarted = true;
-  //                 });
-  //                 _startLiveNavigation();
-  //               } else {
-  //                 _resetState();
-  //               }
-  //             },
-  //             style: ElevatedButton.styleFrom(
-  //               backgroundColor: isJourneyStarted
-  //                   ? AppColors.primaryText
-  //                   : AppColors.primary,
-  //               padding: EdgeInsets.symmetric(horizontal: 40.w, vertical: 15.h),
-  //               shape: RoundedRectangleBorder(
-  //                 borderRadius: BorderRadius.circular(10.sp),
-  //               ),
-  //               minimumSize: Size(MediaQuery.of(context).size.width, 50.sp),
-  //             ),
-  //             child: isJourneyStarted
-  //                 ? Text(
-  //                     'Exit',
-  //                     style: TextStyle(fontSize: 16.sp, color: Colors.white),
-  //                   )
-  //                 : Text(
-  //                     'Start',
-  //                     style: TextStyle(
-  //                         fontSize: 16.sp, color: AppColors.primaryText),
-  //                   ),
-  //           ),
-  //           // SizedBox(height: 10.h),
-  //           // Transportation mode selection
-  //         ],
-  //       ),
-  //     ),
-  //   );
-  // }
 
   Widget multipleStopCardDesign(Map<String, dynamic> stop) {
     bool isLastStop = _stopsInfo.last == stop;
@@ -2357,31 +1890,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                   ],
                 )
               : SizedBox(),
-          // Row(
-          //   children: [
-          //     Expanded(
-          //       child: Text(
-          //         finalDestinationDescription,
-          //         style: TextStyle(
-          //           fontSize: 14.sp,
-          //           color: AppColors.dividerGrey,
-          //         ),
-          //       ),
-          //     ),
-          //     isJourneyStarted
-          //         ? SizedBox()
-          //         : Align(
-          //             alignment: Alignment.bottomCenter,
-          //             child: IconButton(
-          //               icon: Icon(Icons.remove_circle, color: Colors.red),
-          //               onPressed: () {
-          //                 _resetState();
-          //               },
-          //               // onPressed: () => _removeStop(stop),
-          //             ),
-          //           ),
-          //   ],
-          // ),
+          
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
@@ -2488,39 +1997,39 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     );
   }
 
-  Widget _startPositionCard(String title, String? _selectedDestination) {
-    return Container(
-      width: double.infinity,
-      height: 45.h,
-      // margin: EdgeInsets.symmetric(horizontal: 20.w),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(50),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 12.h),
-        child: Row(
-          children: [
-            Image.asset(
-              'assets/current_location_marker.png',
-              height: 20.h,
-            ),
-            SizedBox(
-              width: 5.w,
-            ),
-            Text(
-              title,
-              style: TextStyle(color: AppColors.dividerGrey, fontSize: 12.sp),
-            ),
-            Text(
-              _selectedDestination.toString(),
-              style: TextStyle(color: AppColors.primaryGrey, fontSize: 14.sp),
-            )
-          ],
-        ),
-      ),
-    );
-  }
+  // Widget _startPositionCard(String title, String? _selectedDestination) {
+  //   return Container(
+  //     width: double.infinity,
+  //     height: 45.h,
+  //     // margin: EdgeInsets.symmetric(horizontal: 20.w),
+  //     decoration: BoxDecoration(
+  //       color: Colors.white,
+  //       borderRadius: BorderRadius.circular(50),
+  //     ),
+  //     child: Padding(
+  //       padding: EdgeInsets.symmetric(horizontal: 15.w, vertical: 12.h),
+  //       child: Row(
+  //         children: [
+  //           Image.asset(
+  //             'assets/current_location_marker.png',
+  //             height: 20.h,
+  //           ),
+  //           SizedBox(
+  //             width: 5.w,
+  //           ),
+  //           Text(
+  //             title,
+  //             style: TextStyle(color: AppColors.dividerGrey, fontSize: 12.sp),
+  //           ),
+  //           Text(
+  //             _selectedDestination.toString(),
+  //             style: TextStyle(color: AppColors.primaryGrey, fontSize: 14.sp),
+  //           )
+  //         ],
+  //       ),
+  //     ),
+  //   );
+  // }
 
   Widget _stopPositionCard(String title) {
     return Container(
