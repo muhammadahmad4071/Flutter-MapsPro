@@ -84,7 +84,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   final VoiceService _voiceService = VoiceService();
   int _currentInstructionIndex = 0;
 
-
   bool containTolls = false;
 
   @override
@@ -165,7 +164,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       } else {
         setState(() => isLoading = false); // Stop loading if no permission
       }
-      // _startPermissionCheck(); 
+      // _startPermissionCheck();  // Uncomment
       debugPrint("myDebug isLoading _initializeApp() $isLoading");
     } catch (e) {
       debugPrint("Error initializing App: $e");
@@ -182,6 +181,12 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
           throw Exception("Location services are disabled.");
         }
       }
+
+      _location.changeSettings(
+        accuracy: loc.LocationAccuracy.high,
+        distanceFilter: 5, // Get updates more frequently
+      );
+
       final locationData = await _location.getLocation();
 
       countryCode = await getCountryCode(
@@ -314,73 +319,70 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   // }
 
   double _calculateBearing(LatLng start, LatLng end) {
-  final double lat1 = start.latitude * pi / 180.0;
-  final double lon1 = start.longitude * pi / 180.0;
-  final double lat2 = end.latitude * pi / 180.0;
-  final double lon2 = end.longitude * pi / 180.0;
+    final double lat1 = start.latitude * pi / 180.0;
+    final double lon1 = start.longitude * pi / 180.0;
+    final double lat2 = end.latitude * pi / 180.0;
+    final double lon2 = end.longitude * pi / 180.0;
 
-  final double dLon = lon2 - lon1;
+    final double dLon = lon2 - lon1;
 
-  final double y = sin(dLon) * cos(lat2);
-  final double x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
+    final double y = sin(dLon) * cos(lat2);
+    final double x = cos(lat1) * sin(lat2) - sin(lat1) * cos(lat2) * cos(dLon);
 
-  final double bearing = atan2(y, x) * 180.0 / pi;
+    final double bearing = atan2(y, x) * 180.0 / pi;
 
-  return (bearing + 360) % 360; // Ensure positive value
-}
-
+    return (bearing + 360) % 360; // Ensure positive value
+  }
 
 // Function to update the user's location marker
   void _updateUserLocation(loc.LocationData locationData) {
-  final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
-  double heading = locationData.heading ?? 0.0;
+    final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
+    double heading = locationData.heading ?? 0.0;
 
-  LatLng? nextPoint;
-  if (_polylines.isNotEmpty && _polylines.first.points.length > 1) {
-    nextPoint = _polylines.first.points[1];
+    LatLng? nextPoint;
+    if (_polylines.isNotEmpty && _polylines.first.points.length > 1) {
+      nextPoint = _polylines.first.points[1];
+    }
+
+    final bearing = nextPoint != null
+        ? _calculateBearing(userLatLng, nextPoint)
+        : heading; // Fallback to device heading if no polyline point is available
+
+    setState(() {
+      _initialPosition = userLatLng;
+
+      _startingMarker = Marker(
+        markerId: const MarkerId('userLocation'),
+        position: userLatLng,
+        icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
+        infoWindow: const InfoWindow(title: "Your Current Location"),
+        rotation: bearing,
+        anchor: const Offset(0.5, 0.5), // Center the rotation point
+      );
+    });
+
+    if (isJourneyStarted) {
+      _animateCameraToUserPosition(userLatLng, bearing);
+    }
+
+    if (isJourneyStarted) {
+      _fetchAndDrawRoutes(currentPosition: userLatLng);
+    }
   }
 
-  final bearing = nextPoint != null 
-      ? _calculateBearing(userLatLng, nextPoint)
-      : heading;  // Fallback to device heading if no polyline point is available
+  void _animateCameraToUserPosition(LatLng position, double bearing) {
+    // uncomment to active animate camera
+    // final cameraUpdate = CameraUpdate.newCameraPosition(
+    //   CameraPosition(
+    //     target: position,
+    //     zoom: 20.0,
+    //     bearing: bearing, // Align camera with movement direction
+    //     tilt: 50.0, // Optional: Adds a slight 3D effect for better navigation
+    //   ),
+    // );
 
-  setState(() {
-    _initialPosition = userLatLng;
-
-    _startingMarker = Marker(
-      markerId: const MarkerId('userLocation'),
-      position: userLatLng,
-      icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
-      infoWindow: const InfoWindow(title: "Your Current Location"),
-      rotation: bearing,
-      anchor: const Offset(0.5, 0.5), // Center the rotation point
-    );
-  });
-
-  if (isJourneyStarted) {
-    _animateCameraToUserPosition(userLatLng, bearing);
+    // mapController?.animateCamera(cameraUpdate);
   }
-
-  if (isJourneyStarted) {
-    _fetchAndDrawRoutes(currentPosition: userLatLng);
-  }
-}
-
-
-void _animateCameraToUserPosition(LatLng position, double bearing) {
-  final cameraUpdate = CameraUpdate.newCameraPosition(
-    CameraPosition(
-      target: position,
-      zoom: 16.0,
-      bearing: bearing,  // Align camera with movement direction
-      tilt: 45.0,         // Optional: Adds a slight 3D effect for better navigation
-    ),
-  );
-  
-  mapController?.animateCamera(cameraUpdate);
-}
-
-
 
   Future<void> _moveToUserLocation() async {
     try {
@@ -389,11 +391,17 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
         debugPrint("myDebug Permission not granted. Cannot move to location.");
         return;
       }
+      _location.changeSettings(
+        accuracy: loc.LocationAccuracy.high, // Use high accuracy mode
+        interval: 1000, // Update location every second (1000ms)
+        distanceFilter: 5, // Minimum distance in meters before update
+      );
       final locationData = await _location.getLocation();
       _updateUserLocation(locationData);
       final userLatLng =
           LatLng(locationData.latitude!, locationData.longitude!);
-      mapController?.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
+      // uncomment
+      // mapController?.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
     } catch (e) {
       debugPrint("Error moving to location: $e");
     }
@@ -510,7 +518,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
     }
   }
 
-
   // SortedDestinations
   Future<void> _fetchAndDrawRoutes({LatLng? currentPosition}) async {
     try {
@@ -580,19 +587,13 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
                   step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
               instructionsList.add(instruction);
 
-              // Speak each step instruction
-              // await _voiceService.speak(instruction);
-              // await Future(step['.delayed(Durationduration']['value']);
-
-              //Voice Guidance
-              // Future.delayed(
-              //     Duration(seconds: 5), () => ttsService.speak(instruction));
               if (instruction.toLowerCase().contains("toll road")) {
                 legContainsToll = true;
                 containTolls = true;
               }
             }
 
+            if (isJourneyStarted) _speakNextInstruction(instructionsList[0]);
             leg['instructions'] = instructionsList;
             leg['hasToll'] = legContainsToll;
           }
@@ -624,7 +625,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
     }
   }
 
-
   Future<String?> _getPlaceIdFromLatLng(LatLng position) async {
     final url =
         'https://maps.googleapis.com/maps/api/geocode/json?latlng=${position.latitude},${position.longitude}&key=$myApiKey';
@@ -644,7 +644,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
     return null; // Return null if not found
   }
 
-  // ! update Stops info
   Future<void> _updateStopsInfo(dynamic route, List<dynamic> legs) async {
     List<Map<String, dynamic>> stops = [];
 
@@ -850,7 +849,8 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
         navigationInstructions = instructionsList; // Store for UI display
 
         debugPrint("Route Toll Info: $containTolls");
-        debugPrint("VGN onRoute Navigation Instruction at Zero: ${navigationInstructions[0]}");
+        debugPrint(
+            "VGN onRoute Navigation Instruction at Zero: ${navigationInstructions[0]}");
         debugPrint(
             "Turn-by-turn navigation: ${navigationInstructions.join(', ')}");
       } else {
@@ -859,14 +859,13 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
     });
   }
 
-
-  void _speakNextInstruction() async {
-  if (_currentInstructionIndex < navigationInstructions.length) {
-    await _voiceService.speak(navigationInstructions[_currentInstructionIndex]);
-    _currentInstructionIndex++;
+  String tempInstruction = "";
+  void _speakNextInstruction(String instruction) async {
+    if (instruction != tempInstruction) {
+      tempInstruction = instruction; // Update before awaiting
+      await _voiceService.speak(instruction);
+    }
   }
-}
-
 
   void _startLiveNavigation() {
     _moveToUserLocation(); // Move the camera to user's current location
@@ -874,9 +873,9 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
     _location.changeSettings(
       accuracy:
           loc.LocationAccuracy.high, // Set high accuracy for better precision
-      distanceFilter: 10, // Only update if user moves 10 meters
+      distanceFilter: 10, // Updates only when moving 10 meters
+      interval: 2000, // Request updates every 2 seconds
     );
-    
 
     _locationSubscription = loc.Location.instance.onLocationChanged.listen(
       (locationData) async {
@@ -889,12 +888,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
         final currentLocation =
             LatLng(locationData.latitude!, locationData.longitude!);
 
-        // if (_currentInstructionIndex < navigationInstructions.length &&
-        //     hasUserReachedNextStep(currentLocation)) {
-        //   _speakNextInstruction();
-        // }
-
-        // **Check if the user has reached any stop**
         for (var stop in List.from(_stopsInfo)) {
           if (hasReachedDestination(currentLocation, stop['location'])) {
             debugPrint("myDebug User reached: ${stop['name']}");
@@ -906,27 +899,23 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
               backgroundColor: AppColors.primary,
               textColor: AppColors.primaryText,
             );
-            break; // Ensure only one stop is removed at a time
+            break;
           }
         }
 
-        // Check if the destination is reached
         if (hasReachedDestination(currentLocation, getLastDestination())) {
           _onReachedDestination();
           return;
         }
 
-        // Check for route deviation or user movement
         if (shouldRecalculateRoute(currentLocation, getLastDestination())) {
           debugPrint('Recalculating route...');
           await _fetchAndDrawRoutes(
               currentPosition: currentLocation); // Re-fetch the route
         }
 
-        // Update user location marker and adjust polyline
         _updateUserLocation(locationData);
 
-        // Update the polyline to show real-time movement
         setState(() {
           _polylines = _polylines.map((polyline) {
             if (polyline.polylineId.value == "shortestRoute") {
@@ -972,7 +961,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
       return distanceText;
     }
   }
-
 
   Set<Marker> _getMarkers() {
     return {
@@ -1027,10 +1015,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
       if (!isInternetConnected) {
         return NoInternetWidget();
       }
-
-      // if (!hasLocationPermission) {
-      //   return locationPermissionWidget();
-      // }
 
       return PopScope(
         canPop: false, // Prevent default back button behavior
@@ -1188,10 +1172,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
                                         zoom: 14,
                                       ),
                                       markers: _getMarkers(),
-                                      // markers: {
-                                      //   if (_startingMarker != null) _startingMarker!,
-                                      //   if (_destinationMarker != null) _destinationMarker!,
-                                      // },
                                       polylines: _polylines,
                                       trafficEnabled: true,
                                     ),
@@ -1262,20 +1242,9 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
                                                     prediction.description ??
                                                         ''),
                                                 onTap: () async {
-                                                  //   await _checkLocationPermission();
-                                                  // _searchController.text = prediction
-                                                  //         .structuredFormatting?.mainText ??
-                                                  //     _searchController.text;
                                                   _searchController.text = '';
                                                   _selectCity(prediction);
                                                 },
-                                                // subtitle: Divider(
-                                                //   color: AppColors.dividerGrey
-                                                //       .withAlpha(100),
-                                                //   thickness: 0.5,
-                                                //   endIndent: 40,
-                                                // ),
-                                                // trailing: Text("Distance ${prediction.distanceMeters}"),
                                               );
                                             },
                                           ),
@@ -1285,7 +1254,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
                               ),
                             ),
                           ),
-                          // if (!showBottomSheet)
                           Positioned(
                             bottom: 0.h,
                             left: 0,
@@ -1321,9 +1289,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
                                   decoration: BoxDecoration(
                                     color: Colors.white,
                                     borderRadius: BorderRadius.only(
-                                      // topLeft: Radius.circular(
-                                      //     28.r), // Adjust for desired roundness
-                                      // topRight: Radius.circular(28.r),
                                       bottomLeft: Radius.circular(28.r),
                                       bottomRight: Radius.circular(28.r),
                                     ),
@@ -1347,13 +1312,10 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
 
   void _resetState() {
     setState(() {
-      // isDestinationSelected = false;
       showBottomSheet = false;
-      _polylines.clear(); // Clear all polylines
-      // _destinationMarker = null;
+      _polylines.clear();
       _searchController.text = '';
-      // _initialPosition = null; // Reset the initial position
-      // _destinationPosition = null; // Reset the destination position
+      tempInstruction = "";
       distanceText = ''; // Clear distance text
       durationText = ''; // Clear duration text
       tollInfoText = ''; // Clear toll info text
@@ -1405,8 +1367,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
             ElevatedButton(
               onPressed: () async {
                 await Geolocator.openAppSettings();
-                // await Geolocator.openLocationSettings();
-                // _checkLocationPermission();
                 _initializeApp();
               },
               style: ElevatedButton.styleFrom(
@@ -1504,16 +1464,17 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
 
               // Stops Info
               GestureDetector(
-              onTap: () {
-                setState(() {
-                  _isExpanded = !_isExpanded; // Toggle state
-                });
-              },
-              child: Container(
-                color: Colors.white,
-                child: checkStopsStatus() ? showMultipleStops() : showSingleStop()),
-            ),
-              
+                onTap: () {
+                  setState(() {
+                    _isExpanded = !_isExpanded; // Toggle state
+                  });
+                },
+                child: Container(
+                    color: Colors.white,
+                    child: checkStopsStatus()
+                        ? showMultipleStops()
+                        : showSingleStop()),
+              ),
 
               SizedBox(height: 20),
 
@@ -1556,7 +1517,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
       ),
     );
   }
-
 
   Widget multipleStopCardDesign(Map<String, dynamic> stop) {
     bool isLastStop = _stopsInfo.last == stop;
@@ -1890,7 +1850,6 @@ void _animateCameraToUserPosition(LatLng position, double bearing) {
                   ],
                 )
               : SizedBox(),
-          
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
