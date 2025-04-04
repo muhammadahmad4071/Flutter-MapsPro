@@ -19,7 +19,8 @@ import 'package:maps/util/app_colors.dart';
 import 'package:flutter_polyline_points/flutter_polyline_points.dart';
 // import 'package:google_maps_webservice/directions.dart' as gmaps;
 import 'package:google_maps_flutter/google_maps_flutter.dart' as maps;
-import 'package:location/location.dart' as loc;
+// import 'package:location/location.dart' as loc;
+import '../util/helper_functions.dart';
 
 // import '../util/permission_services.dart';
 
@@ -66,6 +67,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   bool isJourneyStarted = false;
   bool isMoreStopsAdded = false;
   List<String> navigationInstructions = [];
+  List<String> voiceInstructionList = [];
   // bool isDestinationSelected = false;
   // String destinationText = "N/A";
   // Position? userCurrentPosition;
@@ -74,15 +76,18 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   List<ConnectivityResult> _connectionStatus = [ConnectivityResult.none];
   late StreamSubscription<List<ConnectivityResult>> _connectivitySubscription;
 
-  final loc.Location _location = loc.Location();
-  late StreamSubscription<loc.LocationData> _locationSubscription;
+  // final loc.Location _location = loc.Location();
+  // late StreamSubscription<loc.LocationData> _locationSubscription;
+
+  late StreamSubscription<Position> _locationSubscription;
+
   List<LatLng> selectedRoutePoints = [];
   Timer? _permissionCheckTimer;
   bool _isRequestingPermission = false;
   User? _user;
 
   final VoiceService _voiceService = VoiceService();
-  int _currentInstructionIndex = 0;
+  // int _currentInstructionIndex = 0;
 
   bool containTolls = false;
 
@@ -174,31 +179,62 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   Future<void> _initializeUserLocation() async {
     try {
-      bool isServiceEnabled = await _location.serviceEnabled();
+      // Step 1: Check if location services are enabled
+      bool isServiceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!isServiceEnabled) {
-        isServiceEnabled = await _location.requestService();
-        if (!isServiceEnabled) {
-          throw Exception("Location services are disabled.");
-        }
+        throw Exception("Location services are disabled. Please enable them.");
       }
 
-      _location.changeSettings(
-        accuracy: loc.LocationAccuracy.high,
-        distanceFilter: 5, // Get updates more frequently
+      // Step 2: Request location permission
+      LocationPermission permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        throw Exception(
+            "Location permission is denied. Please grant permission.");
+      } else if (permission == LocationPermission.deniedForever) {
+        throw Exception(
+            "Location permission is denied forever. Please enable it in app settings.");
+      }
+
+      // Step 3: Configure location settings with high accuracy
+      LocationSettings locationSettings = LocationSettings(
+        accuracy: LocationAccuracy.high, // High accuracy for better precision
+        distanceFilter: 5, // Only update if user moves 5 meters
       );
 
-      final locationData = await _location.getLocation();
+      // Step 4: Get the current location using the updated settings
+      Position position = await Geolocator.getCurrentPosition(
+        locationSettings: locationSettings,
+      );
 
+      // Fetch the country code for user's current location
       countryCode = await getCountryCode(
-          LatLng(locationData.latitude!, locationData.longitude!));
-      _updateUserLocation(locationData);
+        LatLng(position.latitude, position.longitude),
+      );
+
+      // Step 5: Update user location and the UI
+      _updateUserLocation(
+          position); // Pass Position object to update user location
       setState(() {
         hasLocationPermission = true;
         isLoading = false;
-      }); // byme
+      });
     } catch (e) {
       debugPrint("Error initializing user location: $e");
-      setState(() => isLoading = false);
+
+      // Handle error states
+      setState(() {
+        hasLocationPermission = false;
+        isLoading = false; // Set loading to false on error as well
+      });
+
+      // Optionally, show a toast or dialog to inform users of the error.
+      Fluttertoast.showToast(
+        msg: e.toString(),
+        toastLength: Toast.LENGTH_LONG,
+        gravity: ToastGravity.BOTTOM,
+        backgroundColor: Colors.red,
+        textColor: Colors.white,
+      );
     }
   }
 
@@ -207,28 +243,40 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     _isRequestingPermission = true;
 
     try {
-      loc.PermissionStatus currentStatus = await _location.hasPermission();
+      // Step 1: Check current location permission status
+      LocationPermission currentStatus = await Geolocator.checkPermission();
 
-      if (currentStatus == loc.PermissionStatus.granted) {
+      if (currentStatus == LocationPermission.whileInUse ||
+          currentStatus == LocationPermission.always) {
         return true; // Permission is already granted
       }
 
-      // Request permission only if not granted
-      loc.PermissionStatus newStatus = await _location.requestPermission();
-      if (newStatus == loc.PermissionStatus.granted) {
-        final locationData = await _location.getLocation();
-        if (locationData.latitude == null || locationData.longitude == null) {
+      // Step 2: Request permission if not granted
+      LocationPermission newStatus = await Geolocator.requestPermission();
+
+      if (newStatus == LocationPermission.whileInUse ||
+          newStatus == LocationPermission.always) {
+        // Step 3: Fetch location if permission granted
+        Position position = await Geolocator.getCurrentPosition(
+          locationSettings: LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5,
+          ),
+        );
+
+        if (position.longitude == null) {
           throw Exception("Failed to fetch location after permission grant.");
         }
 
+        // Update position and state
         setState(() {
-          _initialPosition =
-              LatLng(locationData.latitude!, locationData.longitude!);
+          _initialPosition = LatLng(position.latitude, position.longitude);
           hasLocationPermission = true;
         });
 
         return true;
       } else {
+        // Handle permission denial
         setState(() {
           hasLocationPermission = false;
         });
@@ -335,15 +383,18 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   }
 
 // Function to update the user's location marker
-  void _updateUserLocation(loc.LocationData locationData) {
-    final userLatLng = LatLng(locationData.latitude!, locationData.longitude!);
-    double heading = locationData.heading ?? 0.0;
+  void _updateUserLocation(Position position) {
+    final userLatLng = LatLng(position.latitude, position.longitude);
+    double heading =
+        position.heading ?? 0.0; // Geolocator provides heading if available
 
+    // Handle polyline logic for nextPoint
     LatLng? nextPoint;
     if (_polylines.isNotEmpty && _polylines.first.points.length > 1) {
       nextPoint = _polylines.first.points[1];
     }
 
+    // Calculate bearing based on the next point or fallback to heading
     final bearing = nextPoint != null
         ? _calculateBearing(userLatLng, nextPoint)
         : heading; // Fallback to device heading if no polyline point is available
@@ -356,7 +407,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
         position: userLatLng,
         icon: userLocationMarker ?? BitmapDescriptor.defaultMarker,
         infoWindow: const InfoWindow(title: "Your Current Location"),
-        rotation: bearing,
+        rotation: 0,
         anchor: const Offset(0.5, 0.5), // Center the rotation point
       );
     });
@@ -372,36 +423,34 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   void _animateCameraToUserPosition(LatLng position, double bearing) {
     // uncomment to active animate camera
-    // final cameraUpdate = CameraUpdate.newCameraPosition(
-    //   CameraPosition(
-    //     target: position,
-    //     zoom: 20.0,
-    //     bearing: bearing, // Align camera with movement direction
-    //     tilt: 50.0, // Optional: Adds a slight 3D effect for better navigation
-    //   ),
-    // );
+    final cameraUpdate = CameraUpdate.newCameraPosition(
+      CameraPosition(
+        target: position,
+        zoom: 20.0,
+        bearing: bearing, // Align camera with movement direction
+        tilt: 50.0, // Optional: Adds a slight 3D effect for better navigation
+      ),
+    );
 
-    // mapController?.animateCamera(cameraUpdate);
+    mapController?.animateCamera(cameraUpdate);
   }
 
   Future<void> _moveToUserLocation() async {
     try {
-      // await _checkLocationPermission();
       if (!hasLocationPermission) {
-        debugPrint("myDebug Permission not granted. Cannot move to location.");
+        debugPrint("Permission not granted. Cannot move to location.");
         return;
       }
-      _location.changeSettings(
-        accuracy: loc.LocationAccuracy.high, // Use high accuracy mode
-        interval: 1000, // Update location every second (1000ms)
-        distanceFilter: 5, // Minimum distance in meters before update
+
+      final locationData = await Geolocator.getCurrentPosition(
+        desiredAccuracy:
+            LocationAccuracy.high, // High accuracy for better precision
       );
-      final locationData = await _location.getLocation();
       _updateUserLocation(locationData);
-      final userLatLng =
-          LatLng(locationData.latitude!, locationData.longitude!);
-      // uncomment
-      // mapController?.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
+      final userLatLng = LatLng(locationData.latitude, locationData.longitude);
+
+      // Move the camera to the user position (you can uncomment this if needed)
+      mapController?.animateCamera(CameraUpdate.newLatLngZoom(userLatLng, 14));
     } catch (e) {
       debugPrint("Error moving to location: $e");
     }
@@ -481,8 +530,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     return await BitmapDescriptor.asset(
       ImageConfiguration(size: Size(24.w, 24.h)), // Specify desired size
       'assets/nav_arrow_icon.png',
-      // 'assets/current_location_marker.png',
-      // 'assets/anim_location.gif',21302130
     );
   }
 
@@ -522,7 +569,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   Future<void> _fetchAndDrawRoutes({LatLng? currentPosition}) async {
     try {
       final origin = currentPosition ?? _initialPosition;
-      if (origin == null || _destinationPositions.isEmpty) {
+      if (_destinationPositions.isEmpty) {
         throw Exception("Current or destination position is not set.");
       }
 
@@ -582,20 +629,50 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
             List<String> instructionsList = [];
             bool legContainsToll = false;
 
+            // String distance = '';
+            // String maneuver = '';
+
             for (var step in leg['steps']) {
               String instruction =
                   step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
-              instructionsList.add(instruction);
 
               if (instruction.toLowerCase().contains("toll road")) {
                 legContainsToll = true;
                 containTolls = true;
               }
-            }
+              instructionsList.add(instruction);
 
-            if (isJourneyStarted) _speakNextInstruction(instructionsList[0]);
+              // Voice setting
+              // voiceInstructionList = [];
+
+              // voiceInstructionList.add(instruction);
+            }
+            // Commented for voice nav
+            // for (var step in leg['steps']) {
+            //   String instruction =
+            //       step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
+            //   instructionsList.add(instruction);
+
+            //   if (instruction.toLowerCase().contains("toll road")) {
+            //     legContainsToll = true;
+            //     containTolls = true;
+            //   }
+            // }
+
             leg['instructions'] = instructionsList;
             leg['hasToll'] = legContainsToll;
+          }
+
+          String distance =
+              legs[0]['steps'][0]['distance']['text']; // e.g., "300 meters"
+          String maneuver =
+              legs[0]['steps'][0]['maneuver'] ?? ''; // e.g., "turn-left"
+          String singleInstruction = legs[0]['instructions'][0];
+          if (isJourneyStarted) {
+            String voiceInstruction = HelperFunctions()
+                .getVoiceInstruction(distance, maneuver, singleInstruction);
+            debugPrint("vnins $voiceInstruction");
+            _speakNextInstruction(voiceInstruction);
           }
 
           if (!mounted) return;
@@ -870,70 +947,71 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   void _startLiveNavigation() {
     _moveToUserLocation(); // Move the camera to user's current location
 
-    _location.changeSettings(
-      accuracy:
-          loc.LocationAccuracy.high, // Set high accuracy for better precision
-      distanceFilter: 10, // Updates only when moving 10 meters
-      interval: 2000, // Request updates every 2 seconds
-    );
+    // Request location updates every 2 seconds with high accuracy and a minimum movement of 10 meters
+    _locationSubscription = Geolocator.getPositionStream(
+      locationSettings: LocationSettings(
+        accuracy: LocationAccuracy.high, // High accuracy for better precision
+        distanceFilter: 10, // Updates only when moving 10 meters
+        // timeLimit: Duration(seconds: 2), // Request updates every 2 seconds
+      ),
+    ).listen((position) async {
+      if (position.longitude == null) {
+        return;
+      }
 
-    _locationSubscription = loc.Location.instance.onLocationChanged.listen(
-      (locationData) async {
-        if (locationData.latitude == null || locationData.longitude == null) {
-          return;
+      // Create a LatLng from the new position
+      final currentLocation = LatLng(position.latitude, position.longitude);
+
+      // Check if user reached any stop
+      for (var stop in List.from(_stopsInfo)) {
+        if (hasReachedDestination(currentLocation, stop['location'])) {
+          debugPrint("myDebug User reached: ${stop['name']}");
+          await _removeStop(stop);
+          Fluttertoast.showToast(
+            msg: "Reached ${stop['name']}",
+            toastLength: Toast.LENGTH_SHORT,
+            gravity: ToastGravity.BOTTOM,
+            backgroundColor: AppColors.primary,
+            textColor: AppColors.primaryText,
+          );
+          break;
         }
+      }
 
-        // await _checkLocationPermission();
+      // Check if the user has reached the last destination
+      if (hasReachedDestination(currentLocation, getLastDestination())) {
+        _onReachedDestination();
+        return;
+      }
 
-        final currentLocation =
-            LatLng(locationData.latitude!, locationData.longitude!);
+      // Recalculate route if needed
+      if (shouldRecalculateRoute(currentLocation, getLastDestination())) {
+        debugPrint('Recalculating route...');
+        await _fetchAndDrawRoutes(
+            currentPosition: currentLocation); // Re-fetch the route
+      }
 
-        for (var stop in List.from(_stopsInfo)) {
-          if (hasReachedDestination(currentLocation, stop['location'])) {
-            debugPrint("myDebug User reached: ${stop['name']}");
-            await _removeStop(stop);
-            Fluttertoast.showToast(
-              msg: "Reached ${stop['name']}",
-              toastLength: Toast.LENGTH_SHORT,
-              gravity: ToastGravity.BOTTOM,
-              backgroundColor: AppColors.primary,
-              textColor: AppColors.primaryText,
+      // Update the user location on the map
+      _updateUserLocation(position);
+
+      // Update polylines with the new user location
+      setState(() {
+        _polylines = _polylines.map((polyline) {
+          if (polyline.polylineId.value == "shortestRoute") {
+            return Polyline(
+              polylineId: polyline.polylineId,
+              points: [
+                currentLocation,
+                ...polyline.points.sublist(1)
+              ], // Start from the current location
+              color: AppColors.primary,
+              width: 8,
             );
-            break;
           }
-        }
-
-        if (hasReachedDestination(currentLocation, getLastDestination())) {
-          _onReachedDestination();
-          return;
-        }
-
-        if (shouldRecalculateRoute(currentLocation, getLastDestination())) {
-          debugPrint('Recalculating route...');
-          await _fetchAndDrawRoutes(
-              currentPosition: currentLocation); // Re-fetch the route
-        }
-
-        _updateUserLocation(locationData);
-
-        setState(() {
-          _polylines = _polylines.map((polyline) {
-            if (polyline.polylineId.value == "shortestRoute") {
-              return Polyline(
-                polylineId: polyline.polylineId,
-                points: [
-                  currentLocation,
-                  ...polyline.points.sublist(1)
-                ], // Start from the current location
-                color: AppColors.primary,
-                width: 8,
-              );
-            }
-            return polyline;
-          }).toSet();
-        });
-      },
-    );
+          return polyline;
+        }).toSet();
+      });
+    });
   }
 
   LatLng? getLastDestination() {
