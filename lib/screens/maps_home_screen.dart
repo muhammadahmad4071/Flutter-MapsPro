@@ -67,7 +67,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
   bool isJourneyStarted = false;
   bool isMoreStopsAdded = false;
   List<String> navigationInstructions = [];
-  List<String> voiceInstructionList = [];
+  // List<String> voiceInstructionList = [];
   // bool isDestinationSelected = false;
   // String destinationText = "N/A";
   // Position? userCurrentPosition;
@@ -305,17 +305,19 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
     });
   }
 
-  bool hasReachedDestination(LatLng currentLocation, LatLng? destination,
-      {double thresholdInMeters = 50.0}) {
-    final double distance = Geolocator.distanceBetween(
-      currentLocation.latitude,
-      currentLocation.longitude,
-      destination!.latitude,
-      destination.longitude,
-    );
+bool hasReachedDestination(LatLng currentLocation, LatLng? destination, {double thresholdInMeters = 30.0}) {
+  if (destination == null) return false;
+  final double distance = Geolocator.distanceBetween(
+    currentLocation.latitude,
+    currentLocation.longitude,
+    destination.latitude,
+    destination.longitude,
+  );
 
-    return distance <= thresholdInMeters;
-  }
+  debugPrint("myDebug Distance to ${destination.latitude}, ${destination.longitude}: $distance meters");
+  return distance <= thresholdInMeters;
+}
+
 
   void _onReachedDestination() {
     _locationSubscription.cancel();
@@ -572,16 +574,11 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
       if (_destinationPositions.isEmpty) {
         throw Exception("Current or destination position is not set.");
       }
-
-      // List<LatLng> sortedDestinations = List.from(_destinationPositions);
-
-      // if (isJourneyStarted) {
       _destinationPositions.sort((a, b) {
         double distanceA = _calculateDistance(origin, a);
         double distanceB = _calculateDistance(origin, b);
         return distanceA.compareTo(distanceB);
       });
-      // }
 
       String waypoints = _destinationPositions
           .sublist(0, _destinationPositions.length - 1) // All except last
@@ -604,23 +601,8 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
           final route = data['routes'][0];
           final legs = route['legs'];
 
-          //Voice Guidance
-          // final ttsService = VoiceGuidanceService();
-          // ttsService.initTTS();
-
           double totalDistance = 0;
           double totalDuration = 0;
-          bool containTolls = false;
-
-          if (route['warnings'] != null) {
-            debugPrint("myDebug toll Warning Response: ${route['warnings']}");
-            for (var warning in route['warnings']) {
-              if (warning.toString().toLowerCase().contains("toll road")) {
-                containTolls = true;
-                break;
-              }
-            }
-          }
 
           for (var leg in legs) {
             totalDistance += leg['distance']['value'];
@@ -628,9 +610,6 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
             List<String> instructionsList = [];
             bool legContainsToll = false;
-
-            // String distance = '';
-            // String maneuver = '';
 
             for (var step in leg['steps']) {
               String instruction =
@@ -641,28 +620,12 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
                 containTolls = true;
               }
               instructionsList.add(instruction);
-
-              // Voice setting
-              // voiceInstructionList = [];
-
-              // voiceInstructionList.add(instruction);
             }
-            // Commented for voice nav
-            // for (var step in leg['steps']) {
-            //   String instruction =
-            //       step['html_instructions'].replaceAll(RegExp(r'<[^>]*>'), ' ');
-            //   instructionsList.add(instruction);
-
-            //   if (instruction.toLowerCase().contains("toll road")) {
-            //     legContainsToll = true;
-            //     containTolls = true;
-            //   }
-            // }
-
             leg['instructions'] = instructionsList;
             leg['hasToll'] = legContainsToll;
           }
 
+// Voice Navigation
           String distance =
               legs[0]['steps'][0]['distance']['text']; // e.g., "300 meters"
           String maneuver =
@@ -938,7 +901,7 @@ class _MapsHomeScreenState extends State<MapsHomeScreen> {
 
   String tempInstruction = "";
   void _speakNextInstruction(String instruction) async {
-    if (instruction != tempInstruction) {
+    if (instruction.contains(tempInstruction)) {
       tempInstruction = instruction; // Update before awaiting
       await _voiceService.speak(instruction);
     }
